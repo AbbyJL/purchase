@@ -854,14 +854,20 @@ a {
 }
 
 .ci-sheet {
-  width: min(100%, 1120px);
+  width: min(100%, 880px);
   margin: 0 auto;
-  padding: 22px 26px 28px;
+  padding: 18px 20px 22px;
   background: #fff;
   border: 1px solid #1b1b1b;
-  box-shadow: 0 18px 38px rgba(39, 47, 54, 0.12);
+  box-shadow: 0 10px 26px rgba(39, 47, 54, 0.1);
   color: #111;
   font-family: "Times New Roman", "Songti SC", "SimSun", serif;
+}
+
+.ci-disclaimer {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  line-height: 1.3;
 }
 
 .ci-topbar {
@@ -876,23 +882,23 @@ a {
 .ci-logo-block {
   display: grid;
   justify-items: center;
-  min-width: 110px;
+  min-width: 96px;
 }
 
 .ci-logo-mark {
-  width: 58px;
-  height: 58px;
+  width: 52px;
+  height: 52px;
   display: grid;
   place-items: center;
-  border: 4px solid #111;
-  font-size: 2rem;
+  border: 3px solid #111;
+  font-size: 1.8rem;
   font-weight: 700;
   line-height: 1;
 }
 
 .ci-logo-text {
-  margin-top: 6px;
-  font-size: 0.95rem;
+  margin-top: 5px;
+  font-size: 0.86rem;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -904,7 +910,7 @@ a {
 
 .ci-company h1 {
   margin: 0;
-  font-size: clamp(1.15rem, 2vw, 1.85rem);
+  font-size: clamp(1.05rem, 1.9vw, 1.55rem);
   line-height: 1.1;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -912,16 +918,16 @@ a {
 
 .ci-company p {
   margin: 4px 0 0;
-  font-size: 0.95rem;
-  line-height: 1.35;
+  font-size: 0.88rem;
+  line-height: 1.3;
 }
 
 .ci-meta {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.4fr) minmax(220px, 1fr);
-  gap: 12px;
+  grid-template-columns: minmax(200px, 1fr) minmax(260px, 1.25fr) minmax(200px, 1fr);
+  gap: 10px;
   align-items: start;
-  padding: 10px 0 14px;
+  padding: 8px 0 12px;
   border-bottom: 1px solid #111;
 }
 
@@ -933,7 +939,7 @@ a {
 
 .ci-meta span {
   display: block;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 700;
 }
 
@@ -941,13 +947,13 @@ a {
   display: block;
   margin-top: 4px;
   min-height: 18px;
-  font-size: 0.98rem;
+  font-size: 0.92rem;
 }
 
 .ci-title {
   display: grid;
   place-items: center;
-  font-size: clamp(1.35rem, 2.1vw, 2.2rem);
+  font-size: clamp(1.2rem, 2vw, 1.9rem);
   font-weight: 700;
   letter-spacing: 0.03em;
   text-align: center;
@@ -963,8 +969,8 @@ a {
 }
 
 .ci-panel {
-  min-height: 240px;
-  padding: 16px 18px;
+  min-height: 210px;
+  padding: 14px 16px;
   border-right: 1px solid #111;
 }
 
@@ -973,14 +979,14 @@ a {
 }
 
 .ci-panel h2 {
-  margin: 0 0 12px;
-  font-size: 1.05rem;
+  margin: 0 0 10px;
+  font-size: 0.98rem;
 }
 
 .ci-panel p {
   margin: 0;
-  font-size: 1.02rem;
-  line-height: 1.4;
+  font-size: 0.94rem;
+  line-height: 1.35;
   white-space: pre-line;
 }
 
@@ -988,22 +994,22 @@ a {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 88px;
-  font-size: 1rem;
+  margin-top: 72px;
+  font-size: 0.92rem;
   font-weight: 700;
 }
 
 .ci-contact {
   margin-top: 16px !important;
-  font-size: 1rem;
+  font-size: 0.92rem;
 }
 
 .ci-two-line,
 .ci-terms-line {
   display: flex;
   gap: 10px;
-  margin-bottom: 20px;
-  font-size: 1.08rem;
+  margin-bottom: 16px;
+  font-size: 0.98rem;
   line-height: 1.3;
 }
 
@@ -1029,7 +1035,7 @@ a {
 .ci-item-row,
 .ci-total-row {
   display: grid;
-  grid-template-columns: 110px 180px minmax(0, 1fr) 160px 160px;
+  grid-template-columns: 96px 160px minmax(0, 1fr) 140px 140px;
 }
 
 .ci-item-head {
@@ -1041,7 +1047,7 @@ a {
 }
 
 .ci-item-head span {
-  padding: 10px 8px;
+  padding: 8px 8px;
   border-right: 1px solid #111;
 }
 
@@ -1050,17 +1056,17 @@ a {
 }
 
 .ci-item-row {
-  min-height: 64px;
+  min-height: 54px;
 }
 
 .ci-item-row > span {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 10px;
+  padding: 7px 8px;
   border-top: 1px solid #111;
   border-right: 1px solid #111;
-  font-size: 0.98rem;
+  font-size: 0.9rem;
   text-align: center;
   white-space: pre-line;
 }
@@ -1087,24 +1093,24 @@ a {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-right: 1px solid #111;
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-weight: 700;
 }
 
 .ci-total-row strong {
   display: grid;
   place-items: center;
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-weight: 700;
 }
 
 .ci-pack-title {
-  padding: 10px 14px;
+  padding: 8px 12px;
   border-bottom: 1px solid #111;
   background: #f7f7f7;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
@@ -1115,7 +1121,7 @@ a {
 .ci-pack-row,
 .ci-pack-head {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) 160px;
+  grid-template-columns: 96px minmax(0, 1fr) 140px;
 }
 
 .ci-pack-head {
@@ -1127,7 +1133,7 @@ a {
 }
 
 .ci-pack-head span {
-  padding: 10px 8px;
+  padding: 8px 8px;
   border-right: 1px solid #111;
 }
 
@@ -1136,17 +1142,17 @@ a {
 }
 
 .ci-pack-row {
-  min-height: 48px;
+  min-height: 42px;
 }
 
 .ci-pack-row > span {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-top: 1px solid #111;
   border-right: 1px solid #111;
-  font-size: 0.94rem;
+  font-size: 0.88rem;
   text-align: center;
   white-space: pre-line;
 }
@@ -1162,14 +1168,16 @@ a {
 
 .ci-footer {
   display: grid;
-  gap: 12px;
-  padding-top: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  padding-top: 14px;
+  font-size: 0.9rem;
 }
 
 .ci-footer div {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 10px;
 }
 
 .ci-footer span {

@@ -2111,8 +2111,9 @@ function App() {
   const selectedPiId = new URLSearchParams(location.search).get("pi") ?? pis[0]?.id ?? "";
   const selectedPi = useMemo(() => pis.find((item) => item.id === selectedPiId || item.piNo === selectedPiId) ?? pis[0] ?? null, [pis, selectedPiId]);
   const selectedPiCustomer = getPartyDetails(customers.find((item) => item.name === selectedPi?.customer) ?? null);
+  const getLinkedPOForPI = (pi: PIRecord) => pos.find((po) => po.sourcePiId === pi.id || po.poNo === pi.piNo) ?? null;
   const selectedPiVendor = (() => {
-    const linkedPO = selectedPi ? pos.find((po) => po.sourcePiId === selectedPi.id || po.poNo === selectedPi.piNo) : null;
+    const linkedPO = selectedPi ? getLinkedPOForPI(selectedPi) : null;
     const vendorName = linkedPO?.vendor || selectedPi?.vendor || "";
     return getPartyDetails(suppliers.find((item) => item.name === vendorName) ?? (vendorName ? { id: "", name: vendorName, address: linkedPO?.vendorAddress ?? "", contact: linkedPO?.vendorContact ?? "", email: linkedPO?.vendorEmail ?? "", phone: linkedPO?.vendorTel ?? "", website: "", notes: "", status: "active" } : null));
   })();
@@ -2131,8 +2132,24 @@ function App() {
   const openCommercialInvoice = (poId: string) => {
     navigate(`/commercial-invoices?ci=${encodeURIComponent(poId)}`);
   };
+  const openPurchaseOrderPreviewFromPI = (pi: PIRecord) => {
+    const po = getLinkedPOForPI(pi);
+    if (!po) {
+      setNotice(t("notice.noLinkedPO"));
+      return;
+    }
+    openPurchaseOrder(po.id);
+  };
+  const openCommercialInvoiceFromPI = (pi: PIRecord) => {
+    const po = getLinkedPOForPI(pi);
+    if (!po) {
+      setNotice(t("notice.noLinkedPO"));
+      return;
+    }
+    openCommercialInvoice(po.id);
+  };
   const openPurchaseOrderFromPI = (pi: PIRecord) => {
-    const po = pos.find((item) => item.sourcePiId === pi.id || item.poNo === pi.piNo);
+    const po = getLinkedPOForPI(pi);
     if (po) {
       openPurchaseOrder(po.id);
     } else {
@@ -2345,6 +2362,8 @@ function App() {
                 onEditPI={startEditPI}
                 onDeletePI={removePI}
                 onOpenPurchaseOrder={openPurchaseOrderFromPI}
+                onViewPurchaseOrder={openPurchaseOrderPreviewFromPI}
+                onViewCommercialInvoice={openCommercialInvoiceFromPI}
                 onPreviewPI={openProformaInvoicePreview}
                 onGeneratePdf={openProformaInvoice}
                 onGenerateFromOrder={generatePIFromOrder}
@@ -4042,6 +4061,8 @@ function PIsPage({
   onEditPI,
   onDeletePI,
   onOpenPurchaseOrder,
+  onViewPurchaseOrder,
+  onViewCommercialInvoice,
   onPreviewPI,
   onGeneratePdf,
   onGenerateFromOrder,
@@ -4057,6 +4078,8 @@ function PIsPage({
   onEditPI: (pi: PIRecord) => void;
   onDeletePI: (pi: PIRecord) => void;
   onOpenPurchaseOrder: (pi: PIRecord) => void;
+  onViewPurchaseOrder: (pi: PIRecord) => void;
+  onViewCommercialInvoice: (pi: PIRecord) => void;
   onPreviewPI: (pi: PIRecord) => void;
   onGeneratePdf: (pi: PIRecord) => void;
   onGenerateFromOrder: (order: Order) => void;
@@ -4126,6 +4149,14 @@ function PIsPage({
                     <button type="button" className="action-link preview" onClick={() => onPreviewPI(item)}>
                       <IconCopy size={16} strokeWidth={2} />
                       {t("action.preview")}
+                    </button>
+                    <button type="button" className="action-link generate" onClick={() => onViewPurchaseOrder(item)}>
+                      <IconReceipt2 size={16} strokeWidth={2} />
+                      {t("button.viewPO")}
+                    </button>
+                    <button type="button" className="action-link preview" onClick={() => onViewCommercialInvoice(item)}>
+                      <IconFileInvoice size={16} strokeWidth={2} />
+                      {t("button.viewCommercialInvoice")}
                     </button>
                     <button type="button" className="action-link generate" onClick={() => onOpenPurchaseOrder(item)}>
                       <IconReceipt2 size={16} strokeWidth={2} />
@@ -4646,6 +4677,9 @@ function CommercialInvoicePage({
       </div>
 
       <article className="ci-sheet">
+        <div className="ci-disclaimer">
+          This sale contract is made as per the following terms/conditions mutually confirmed:
+        </div>
         <div className="ci-topbar">
           <div className="ci-logo-block">
             <div className="ci-logo-mark">S</div>
