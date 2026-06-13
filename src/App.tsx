@@ -78,6 +78,7 @@ const navItems = [
   { to: "/quotes", key: "nav.quotes", icon: IconReceipt2 },
   { to: "/pis", key: "nav.pis", icon: IconFileInvoice },
   { to: "/po", key: "nav.po", icon: IconReceipt2 },
+  { to: "/commercial-invoices", key: "nav.commercialInvoices", icon: IconFileInvoice },
   { to: "/orders", key: "nav.orders", icon: IconShoppingCart },
   { to: "/contracts", key: "nav.contracts", icon: IconFileDescription },
   { to: "/settings", key: "nav.settings", icon: IconSettings2 },
@@ -503,6 +504,7 @@ function App() {
     if (location.pathname.startsWith("/quotes")) return "quotes";
     if (location.pathname.startsWith("/pis")) return "pis";
     if (location.pathname.startsWith("/po")) return "po";
+    if (location.pathname.startsWith("/commercial-invoices")) return "commercial-invoices";
     if (location.pathname.startsWith("/orders")) return "orders";
     if (location.pathname.startsWith("/contracts")) return "contracts";
     if (location.pathname.startsWith("/settings")) return "settings";
@@ -575,11 +577,13 @@ function App() {
             : currentPage === "quotes"
               ? "page.quotes"
               : currentPage === "pis"
-                ? "page.pis"
-                : currentPage === "po"
-                  ? "page.po"
-                  : currentPage === "orders"
-                    ? "page.orders"
+                  ? "page.pis"
+                  : currentPage === "po"
+                    ? "page.po"
+                    : currentPage === "commercial-invoices"
+                      ? "page.commercialInvoices"
+                    : currentPage === "orders"
+                      ? "page.orders"
                     : currentPage === "contracts"
                       ? "page.contracts"
                       : currentPage === "settings"
