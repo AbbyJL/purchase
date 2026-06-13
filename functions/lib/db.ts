@@ -14,6 +14,7 @@ function mapProduct(row: RecordLike) {
   return {
     id: String(row.id),
     name: String(row.name),
+    supplier: String(row.supplier ?? ""),
     categoryKey: String(row.category_key ?? row.categoryKey),
     price: Number(row.price),
     stock: Number(row.stock),
@@ -134,6 +135,11 @@ function mapPI(row: RecordLike) {
     status: String(row.status),
     generatedAt: String(row.generated_at ?? row.generatedAt),
     generatedBy: String(row.generated_by ?? row.generatedBy),
+    purchaseGeneratedAt: String(row.purchase_generated_at ?? row.purchaseGeneratedAt ?? ""),
+    financeApprovedAt: String(row.finance_approved_at ?? row.financeApprovedAt ?? ""),
+    packingInfoGeneratedAt: String(row.packing_info_generated_at ?? row.packingInfoGeneratedAt ?? ""),
+    commercialInvoiceGeneratedAt: String(row.commercial_invoice_generated_at ?? row.commercialInvoiceGeneratedAt ?? ""),
+    paymentConfirmedAt: String(row.payment_confirmed_at ?? row.paymentConfirmedAt ?? ""),
     pdfUrl: String(row.pdf_url ?? row.pdfUrl ?? ""),
     itemCode: String(row.item_code ?? row.itemCode ?? ""),
     description: String(row.description ?? ""),
@@ -183,7 +189,7 @@ function mapPO(row: RecordLike) {
 export async function listProducts(env: Env) {
   if (!env.DB) return seedProducts;
   const result = await env.DB.prepare(
-    "SELECT id, name, category_key, price, stock, status, image_url FROM products ORDER BY id ASC",
+    "SELECT id, name, supplier, category_key, price, stock, status, image_url FROM products ORDER BY id ASC",
   ).all();
   return (result.results ?? []).map(mapProduct);
 }
@@ -239,7 +245,7 @@ export async function listQuotes(env: Env) {
 export async function listPIs(env: Env) {
   if (!env.DB) return seedPIs;
   const result = await env.DB.prepare(
-    "SELECT id, pi_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, pdf_url, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes FROM pis ORDER BY id ASC",
+    "SELECT id, pi_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, purchase_generated_at, finance_approved_at, packing_info_generated_at, commercial_invoice_generated_at, payment_confirmed_at, pdf_url, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes FROM pis ORDER BY id ASC",
   ).all();
   return (result.results ?? []).map(mapPI);
 }
@@ -294,6 +300,7 @@ export async function createProduct(env: Env, input: RecordLike) {
   const payload = {
     id,
     name: String(input.name ?? ""),
+    supplier: String(input.supplier ?? ""),
     categoryKey: String(input.categoryKey ?? "office"),
     price: Number(input.price ?? 0),
     stock: Number(input.stock ?? 0),
@@ -306,9 +313,9 @@ export async function createProduct(env: Env, input: RecordLike) {
   }
 
   await env.DB.prepare(
-    "INSERT INTO products (id, name, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    "INSERT INTO products (id, name, supplier, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
   )
-    .bind(payload.id, payload.name, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(payload.id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
     .run();
 
   return { ok: true, product: payload };
@@ -320,6 +327,7 @@ export async function updateProduct(env: Env, input: RecordLike) {
 
   const payload = {
     name: String(input.name ?? ""),
+    supplier: String(input.supplier ?? ""),
     categoryKey: String(input.categoryKey ?? "office"),
     price: Number(input.price ?? 0),
     stock: Number(input.stock ?? 0),
@@ -332,9 +340,9 @@ export async function updateProduct(env: Env, input: RecordLike) {
   }
 
   await env.DB.prepare(
-    "UPDATE products SET name = ?2, category_key = ?3, price = ?4, stock = ?5, status = ?6, image_url = ?7 WHERE id = ?1",
+    "UPDATE products SET name = ?2, supplier = ?3, category_key = ?4, price = ?5, stock = ?6, status = ?7, image_url = ?8 WHERE id = ?1",
   )
-    .bind(id, payload.name, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
     .run();
 
   return { ok: true };
@@ -347,6 +355,40 @@ export async function deleteProduct(env: Env, id: string) {
 
   await env.DB.prepare("DELETE FROM products WHERE id = ?1").bind(id).run();
   return { ok: true };
+}
+
+async function upsertProductFromPILine(env: Env, line: RecordLike) {
+  const productCode = String(line.productCode ?? "").trim();
+  const productName = String(line.productName ?? "").trim();
+  if (!productCode && !productName) return;
+
+  const id = productCode || `SPU${Date.now().toString().slice(-6)}`;
+  const payload = {
+    id,
+    name: productName || productCode,
+    supplier: String(line.supplier ?? ""),
+    categoryKey: String(line.categoryKey ?? "accessory"),
+    price: Number(line.unitPrice ?? line.price ?? 0),
+    stock: Number(line.stock ?? 0),
+    status: String(line.status ?? "In stock"),
+    imageUrl: String(line.imageUrl ?? ""),
+  };
+
+  const exists = await env.DB!.prepare("SELECT id FROM products WHERE id = ?1").bind(id).first<{ id: string }>();
+  if (exists) {
+    await env.DB!.prepare(
+      "UPDATE products SET name = ?2, supplier = ?3, category_key = ?4, price = ?5, stock = ?6, status = ?7, image_url = ?8 WHERE id = ?1",
+    )
+      .bind(id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+      .run();
+    return;
+  }
+
+  await env.DB!.prepare(
+    "INSERT INTO products (id, name, supplier, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+  )
+    .bind(id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .run();
 }
 
 export async function createOrder(env: Env, input: RecordLike) {
@@ -760,6 +802,11 @@ export async function createPI(env: Env, input: RecordLike) {
     status: String(input.status ?? "Draft"),
     generatedAt: String(input.generatedAt ?? new Date().toISOString()),
     generatedBy: String(input.generatedBy ?? "Jason"),
+    purchaseGeneratedAt: String(input.purchaseGeneratedAt ?? ""),
+    financeApprovedAt: String(input.financeApprovedAt ?? ""),
+    packingInfoGeneratedAt: String(input.packingInfoGeneratedAt ?? ""),
+    commercialInvoiceGeneratedAt: String(input.commercialInvoiceGeneratedAt ?? ""),
+    paymentConfirmedAt: String(input.paymentConfirmedAt ?? ""),
     pdfUrl: String(input.pdfUrl ?? ""),
     itemCode: String(input.itemCode ?? ""),
     description: String(input.description ?? ""),
@@ -775,7 +822,7 @@ export async function createPI(env: Env, input: RecordLike) {
   };
   if (!env.DB) return { ok: false, message: "D1 not configured", pi: payload };
   await env.DB.prepare(
-    "INSERT INTO pis (id, pi_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, pdf_url, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+    "INSERT INTO pis (id, pi_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, purchase_generated_at, finance_approved_at, packing_info_generated_at, commercial_invoice_generated_at, payment_confirmed_at, pdf_url, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
   )
     .bind(
       payload.id,
@@ -789,6 +836,11 @@ export async function createPI(env: Env, input: RecordLike) {
       payload.status,
       payload.generatedAt,
       payload.generatedBy,
+      payload.purchaseGeneratedAt,
+      payload.financeApprovedAt,
+      payload.packingInfoGeneratedAt,
+      payload.commercialInvoiceGeneratedAt,
+      payload.paymentConfirmedAt,
       payload.pdfUrl,
       payload.itemCode,
       payload.description,
@@ -803,6 +855,9 @@ export async function createPI(env: Env, input: RecordLike) {
       payload.notes,
     )
     .run();
+  for (const line of payload.lines) {
+    await upsertProductFromPILine(env, line as RecordLike);
+  }
   return { ok: true, pi: payload };
 }
 
@@ -820,6 +875,11 @@ export async function updatePI(env: Env, input: RecordLike) {
     status: String(input.status ?? "Draft"),
     generatedAt: String(input.generatedAt ?? new Date().toISOString()),
     generatedBy: String(input.generatedBy ?? "Jason"),
+    purchaseGeneratedAt: String(input.purchaseGeneratedAt ?? ""),
+    financeApprovedAt: String(input.financeApprovedAt ?? ""),
+    packingInfoGeneratedAt: String(input.packingInfoGeneratedAt ?? ""),
+    commercialInvoiceGeneratedAt: String(input.commercialInvoiceGeneratedAt ?? ""),
+    paymentConfirmedAt: String(input.paymentConfirmedAt ?? ""),
     pdfUrl: String(input.pdfUrl ?? ""),
     itemCode: String(input.itemCode ?? ""),
     description: String(input.description ?? ""),
@@ -835,7 +895,7 @@ export async function updatePI(env: Env, input: RecordLike) {
   };
   if (!env.DB) return { ok: false, message: "D1 not configured" };
   await env.DB.prepare(
-    "UPDATE pis SET pi_no = ?2, customer = ?3, brand = ?4, vendor = ?5, our_ref_no = ?6, delivery_date = ?7, deliver_to = ?8, status = ?9, generated_at = ?10, generated_by = ?11, pdf_url = ?12, item_code = ?13, description = ?14, product_type = ?15, size = ?16, colors = ?17, finished = ?18, remarks = ?19, image_url = ?20, size_details_json = ?21, lines_json = ?22, notes = ?23 WHERE id = ?1",
+    "UPDATE pis SET pi_no = ?2, customer = ?3, brand = ?4, vendor = ?5, our_ref_no = ?6, delivery_date = ?7, deliver_to = ?8, status = ?9, generated_at = ?10, generated_by = ?11, purchase_generated_at = ?12, finance_approved_at = ?13, packing_info_generated_at = ?14, commercial_invoice_generated_at = ?15, payment_confirmed_at = ?16, pdf_url = ?17, item_code = ?18, description = ?19, product_type = ?20, size = ?21, colors = ?22, finished = ?23, remarks = ?24, image_url = ?25, size_details_json = ?26, lines_json = ?27, notes = ?28 WHERE id = ?1",
   )
     .bind(
       id,
@@ -849,6 +909,11 @@ export async function updatePI(env: Env, input: RecordLike) {
       payload.status,
       payload.generatedAt,
       payload.generatedBy,
+      payload.purchaseGeneratedAt,
+      payload.financeApprovedAt,
+      payload.packingInfoGeneratedAt,
+      payload.commercialInvoiceGeneratedAt,
+      payload.paymentConfirmedAt,
       payload.pdfUrl,
       payload.itemCode,
       payload.description,
@@ -863,6 +928,9 @@ export async function updatePI(env: Env, input: RecordLike) {
       payload.notes,
     )
     .run();
+  for (const line of payload.lines) {
+    await upsertProductFromPILine(env, line as RecordLike);
+  }
   return { ok: true };
 }
 

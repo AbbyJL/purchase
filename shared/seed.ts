@@ -2,6 +2,7 @@ export const seedProducts = [
   {
     id: "SPU001",
     name: "莫兰迪色系连衣裙",
+    supplier: "Anly",
     categoryKey: "clothing",
     price: 199,
     stock: 100,
@@ -11,6 +12,7 @@ export const seedProducts = [
   {
     id: "SPU002",
     name: "浅紫简约T恤",
+    supplier: "Anly",
     categoryKey: "clothing",
     price: 99,
     stock: 200,
@@ -20,6 +22,7 @@ export const seedProducts = [
   {
     id: "SPU003",
     name: "木纹文件收纳盒",
+    supplier: "ZheJiang Factory",
     categoryKey: "office",
     price: 68,
     stock: 74,
@@ -29,6 +32,7 @@ export const seedProducts = [
   {
     id: "SPU004",
     name: "桌面储物托盘",
+    supplier: "ZheJiang Factory",
     categoryKey: "home",
     price: 58,
     stock: 0,
@@ -295,6 +299,11 @@ export const seedPIs = [
     status: "Generated",
     generatedAt: "2026-06-11T00:00:00Z",
     generatedBy: "Jason",
+    purchaseGeneratedAt: "2026-06-11T02:00:00Z",
+    financeApprovedAt: "2026-06-11T04:30:00Z",
+    packingInfoGeneratedAt: "2026-06-11T06:10:00Z",
+    commercialInvoiceGeneratedAt: "2026-06-11T08:15:00Z",
+    paymentConfirmedAt: "",
     pdfUrl: "",
     itemCode: "KITH-TPC10-KHWA080084",
     description: "KITH Women's 2025 Tear Away Standard Apparel CCL - 60mm x 20mm",
@@ -309,6 +318,7 @@ export const seedPIs = [
       {
         productCode: "KITH-TPC10-KHWA080084",
         productName: "KITH Women's 2025 Tear Away Standard Apparel CCL - 60mm x 20mm",
+        supplier: "浙江嘉兴市壹佳印刷有限公司",
         quantity: 0.24,
         unitPrice: 430,
       },

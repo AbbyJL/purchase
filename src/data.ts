@@ -16,6 +16,7 @@ export const dashboardStats: DashboardStat[] = [
 export const products: Product[] = seedProducts.map((item) => ({
   id: item.id,
   name: item.name,
+  supplier: item.supplier,
   categoryKey: item.categoryKey as Product["categoryKey"],
   price: item.price,
   stock: item.stock,
@@ -120,6 +121,11 @@ export const pis: PIRecord[] = seedPIs.map((item) => ({
   status: item.status as PIRecord["status"],
   generatedAt: item.generatedAt,
   generatedBy: item.generatedBy,
+  purchaseGeneratedAt: item.purchaseGeneratedAt,
+  financeApprovedAt: item.financeApprovedAt,
+  packingInfoGeneratedAt: item.packingInfoGeneratedAt,
+  commercialInvoiceGeneratedAt: item.commercialInvoiceGeneratedAt,
+  paymentConfirmedAt: item.paymentConfirmedAt,
   pdfUrl: item.pdfUrl,
   itemCode: item.itemCode,
   description: item.description,
@@ -130,7 +136,7 @@ export const pis: PIRecord[] = seedPIs.map((item) => ({
   remarks: item.remarks,
   imageUrl: item.imageUrl,
   sizeDetails: [...item.sizeDetails],
-  lines: [...item.lines],
+  lines: item.lines.map((line) => ({ ...line })),
   notes: item.notes,
 }));
 

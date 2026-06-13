@@ -115,6 +115,7 @@ export interface PILineItem {
   id?: string;
   productCode: string;
   productName: string;
+  supplier?: string;
   quantity: number;
   unitPrice: number;
 }
@@ -137,6 +138,11 @@ export interface PIRecord {
   status: PIStatus;
   generatedAt: string;
   generatedBy: string;
+  purchaseGeneratedAt: string;
+  financeApprovedAt: string;
+  packingInfoGeneratedAt: string;
+  commercialInvoiceGeneratedAt: string;
+  paymentConfirmedAt: string;
   pdfUrl: string;
   itemCode: string;
   description: string;
@@ -200,6 +206,7 @@ export interface PORecord {
 export interface Product {
   id: string;
   name: string;
+  supplier: string;
   categoryKey: "clothing" | "office" | "home" | "accessory";
   price: number;
   stock: number;

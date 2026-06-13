@@ -90,6 +90,7 @@ const navItems = [
 type ProductDraft = {
   id?: string;
   name: string;
+  supplier: string;
   categoryKey: Product["categoryKey"];
   price: string;
   stock: string;
@@ -241,6 +242,7 @@ type ModalKind = "product" | "brand" | "customer" | "supplier" | "quote" | "pi" 
 
 const emptyDraft: ProductDraft = {
   name: "",
+  supplier: "",
   categoryKey: "clothing",
   price: "",
   stock: "",
@@ -679,7 +681,43 @@ function createQuoteSheetTemplate() {
 }
 
 function getProductLabel(product: Product) {
-  return `${product.id} · ${product.name}`;
+  return [product.id, product.name, product.supplier].filter(Boolean).join(" · ");
+}
+
+function syncProductsFromPILines(products: Product[], lines: PILineItem[]) {
+  const next = [...products];
+
+  for (const line of lines) {
+    const productCode = line.productCode.trim();
+    const productName = line.productName.trim();
+    const supplier = (line.supplier ?? "").trim();
+    if (!productCode && !productName) continue;
+
+    const existingIndex = next.findIndex((item) => item.id === productCode || item.name === productName);
+    if (existingIndex >= 0) {
+      next[existingIndex] = {
+        ...next[existingIndex],
+        id: productCode || next[existingIndex].id,
+        name: productName || next[existingIndex].name,
+        supplier: supplier || next[existingIndex].supplier,
+        price: Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : next[existingIndex].price,
+      };
+      continue;
+    }
+
+    next.unshift({
+      id: productCode || createRowId("SPU"),
+      name: productName || productCode,
+      supplier,
+      categoryKey: "accessory",
+      price: Number(line.unitPrice || 0),
+      stock: 0,
+      status: "In stock",
+      imageUrl: "",
+    });
+  }
+
+  return next;
 }
 
 function renderProductThumb(product: Product, alt: string) {
@@ -838,6 +876,13 @@ type PartyDetails = {
   contact: string;
   phone: string;
   email: string;
+};
+
+const commercialCompany = {
+  name: "SHANGHAI NOVA ECO TECH LTD",
+  address: "NO.288, HAITANG ROAD, BAIBU TOWN, HAIYAN COUNTY, JIAXING CITY, ZHEJIANG PROVINCE CHINA.",
+  phone: "(0573) 8677 7015",
+  fax: "(0573) 8678 8092",
 };
 
 function getPurchaseOrderVendor(po?: PORecord | null): PurchaseOrderVendor {
@@ -1073,12 +1118,14 @@ function App() {
                 ...row,
                 productCode: product.id,
                 productName: product.name,
+                supplier: product.supplier,
                 unitPrice: Number(product.price || 0),
               }
             : {
                 ...row,
                 productCode: "",
                 productName: "",
+                supplier: "",
                 unitPrice: 0,
               }
           : row,
@@ -1218,6 +1265,7 @@ function App() {
     setProductDraft({
       id: product.id,
       name: product.name,
+      supplier: product.supplier,
       categoryKey: product.categoryKey,
       price: String(product.price),
       stock: String(product.stock),
@@ -1347,7 +1395,7 @@ function App() {
   function startCreatePI() {
     setEditingPIId(null);
     setPIDraft(emptyPIDraft);
-    setPILines([{ id: createLineItemId(), productCode: "", productName: "", quantity: 1, unitPrice: 0 }]);
+    setPILines([{ id: createLineItemId(), productCode: "", productName: "", supplier: "", quantity: 1, unitPrice: 0 }]);
     setPISizeDetails([
       { id: createLineItemId(), size: "14-36", quantity: 20000 },
       { id: createLineItemId(), size: "14 1/2 - 37", quantity: 20000 },
@@ -1475,6 +1523,7 @@ function App() {
     const draft = {
       id: editingProductId ?? `SPU${Date.now().toString().slice(-6)}`,
       name: productDraft.name.trim(),
+      supplier: productDraft.supplier.trim(),
       categoryKey: productDraft.categoryKey,
       price: Number(productDraft.price),
       stock: Number(productDraft.stock),
@@ -1482,8 +1531,8 @@ function App() {
       imageUrl: productDraft.imageUrl.trim(),
     } satisfies Product;
 
-    if (!draft.name) {
-      setNotice(t("notice.productNameRequired"));
+    if (!draft.name || !draft.supplier) {
+      setNotice(t("notice.productRequired"));
       return;
     }
 
@@ -1853,6 +1902,7 @@ function App() {
           id: line.id ?? createLineItemId(),
           productCode: line.productCode.trim(),
           productName: line.productName.trim(),
+          supplier: (line.supplier ?? "").trim(),
           quantity: Number(line.quantity || 0),
           unitPrice: Number(line.unitPrice || 0),
         })),
@@ -1864,7 +1914,14 @@ function App() {
       return;
     }
 
+    const missingSupplierLine = draft.lines.find((line) => (line.productCode.trim() || line.productName.trim()) && !line.supplier.trim());
+    if (missingSupplierLine) {
+      setNotice(t("notice.piLineSupplierRequired"));
+      return;
+    }
+
     setPIs((current) => (editingPIId ? current.map((item) => (item.id === editingPIId ? draft : item)) : [draft, ...current]));
+    setProducts((current) => syncProductsFromPILines(current, draft.lines));
 
     try {
       if (editingPIId) {
@@ -1904,6 +1961,7 @@ function App() {
         id: line.id ?? createLineItemId(),
         productCode: line.productCode.trim(),
         productName: line.productName.trim(),
+        supplier: products.find((item) => item.id === line.productCode.trim() || item.name === line.productName.trim())?.supplier ?? "",
         quantity: Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
         unitPrice: Number(line.price || 0) || getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1"),
       }));
@@ -1945,6 +2003,7 @@ function App() {
               id: createLineItemId(),
               productCode: quote.productCode || firstLine?.productCode || "",
               productName: quote.productName || firstLine?.productName || "",
+              supplier: products.find((item) => item.id === quote.productCode || item.name === quote.productName || item.id === firstLine?.productCode || item.name === firstLine?.productName)?.supplier ?? "",
               quantity: Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
               unitPrice: getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1") || firstQuoteLine?.price || 0,
             },
@@ -1990,6 +2049,7 @@ function App() {
         id: createLineItemId(),
         productCode: order.product,
         productName: order.product,
+        supplier: products.find((item) => item.id === order.product || item.name === order.product)?.supplier ?? "",
         quantity: 1,
         unitPrice: order.total,
       },
@@ -2245,6 +2305,15 @@ function App() {
     [pos, selectedCommercialInvoiceId],
   );
   const selectedCommercialInvoiceVendor = getPurchaseOrderVendor(selectedCommercialInvoice);
+  const selectedCommercialInvoiceCustomer = getPartyDetails(
+    customers.find((item) => item.name === selectedCommercialInvoice?.customer) ?? (selectedCommercialInvoice?.customer ? {
+      name: selectedCommercialInvoice.customer,
+      address: selectedCommercialInvoice.deliverTo || "",
+      contact: "",
+      phone: "",
+      email: "",
+    } : null),
+  );
   const openCommercialInvoice = (poId: string) => {
     navigate(`/commercial-invoices?ci=${encodeURIComponent(poId)}`);
   };
@@ -2552,6 +2621,7 @@ function App() {
                 pos={pos as PORecord[]}
                 selectedPo={selectedCommercialInvoice as PORecord | null}
                 selectedPoVendor={selectedCommercialInvoiceVendor}
+                selectedPoCustomer={selectedCommercialInvoiceCustomer}
                 onSelectPo={openCommercialInvoice}
                 onExportPdf={() => window.print()}
               />
@@ -2597,6 +2667,14 @@ function App() {
                     value={productDraft.name}
                     onChange={(event) => setProductDraft({ ...productDraft, name: event.target.value })}
                     placeholder={t("form.productNamePlaceholder")}
+                  />
+                </label>
+                <label>
+                  <span>{t("form.productSupplier")}</span>
+                  <input
+                    value={productDraft.supplier}
+                    onChange={(event) => setProductDraft({ ...productDraft, supplier: event.target.value })}
+                    placeholder={t("form.productSupplierPlaceholder")}
                   />
                 </label>
                 <label>
@@ -3467,7 +3545,7 @@ function App() {
                     <strong>{t("table.piLines")}</strong>
                     <p>{t("pi.lineSubtitle")}</p>
                   </div>
-                  <button type="button" className="secondary-button tiny-button" onClick={() => setPILines((current) => [...current, { id: createLineItemId(), productCode: "", productName: "", quantity: 1, unitPrice: 0 }])}>
+                  <button type="button" className="secondary-button tiny-button" onClick={() => setPILines((current) => [...current, { id: createLineItemId(), productCode: "", productName: "", supplier: "", quantity: 1, unitPrice: 0 }])}>
                     <IconPlus size={16} strokeWidth={2} />
                     {t("button.addPILine")}
                   </button>
@@ -3483,6 +3561,7 @@ function App() {
                           </option>
                         ))}
                       </select>
+                      <input value={line.supplier} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, supplier: event.target.value } : row)))} placeholder={t("form.lineSupplier")} />
                       <input value={line.productCode} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productCode: event.target.value } : row)))} placeholder={t("form.lineProductCode")} />
                       <input value={line.productName} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productName: event.target.value } : row)))} placeholder={t("form.lineProductName")} />
                       <input type="number" min="0" value={line.quantity} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, quantity: Number(event.target.value) } : row)))} placeholder={t("form.lineQuantity")} />
@@ -3876,14 +3955,15 @@ function DashboardPage({
         }
       >
         <Table
-          columns={[t("table.image"), t("table.productId"), t("table.productName"), t("table.category"), t("table.price"), t("table.stock"), t("table.actions")]}
-          rows={products.slice(0, 2).map((item) => [
-            renderProductThumb(item, item.name),
-            item.id,
-            item.name,
-            t(`category.${item.categoryKey}`),
-            formatMoney(item.price, locale),
-            String(item.stock),
+        columns={[t("table.image"), t("table.productId"), t("table.productName"), t("table.supplier"), t("table.category"), t("table.price"), t("table.stock"), t("table.actions")]}
+        rows={products.slice(0, 2).map((item) => [
+          renderProductThumb(item, item.name),
+          item.id,
+          item.name,
+          item.supplier || "-",
+          t(`category.${item.categoryKey}`),
+          formatMoney(item.price, locale),
+          String(item.stock),
             <TableActions key={item.id} t={t} onEdit={() => onEditProduct(item)} onDelete={() => onDeleteProduct(item)} />,
           ])}
         />
@@ -4796,6 +4876,7 @@ function CommercialInvoicePage({
   pos,
   selectedPo,
   selectedPoVendor,
+  selectedPoCustomer,
   onSelectPo,
   onExportPdf,
 }: {
@@ -4804,6 +4885,7 @@ function CommercialInvoicePage({
   pos: PORecord[];
   selectedPo: PORecord | null;
   selectedPoVendor: PurchaseOrderVendor;
+  selectedPoCustomer: PartyDetails;
   onSelectPo: (poId: string) => void;
   onExportPdf: () => void;
 }) {
@@ -4824,6 +4906,33 @@ function CommercialInvoicePage({
       : selectedPo
         ? [{ lot: "1", size: selectedPo.size || sourceLine?.itemDescription || "-", quantity: packingQuantity }]
         : [];
+  const packingRowsForList = packingRows.length
+    ? packingRows
+    : selectedPo
+      ? [{ lot: "1", size: selectedPo.size || sourceLine?.itemDescription || "-", quantity: packingQuantity }]
+      : [];
+  const totalPackedQty = packingRowsForList.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+  const totalCtns = packingRowsForList.length || 1;
+  const grossWeight = Number((Math.max(totalPackedQty / 1000, totalCtns * 10.8)).toFixed(1));
+  const netWeight = Number((Math.max(totalPackedQty / 1100, totalCtns * 10.2)).toFixed(1));
+  const cbm = Number((Math.max(totalCtns * 0.03, totalPackedQty / 100000)).toFixed(2));
+  const packingSummaryRows = invoiceLines.length
+    ? invoiceLines.map((line, index) => ({
+        itemNo: index + 1,
+        codeRef: line.productCode || selectedPo?.itemCode || "-",
+        program: "Program",
+        item: line.productName || selectedPo?.description || "-",
+        quantity: Number(line.quantity || 0) > 0 ? Number(line.quantity || 0) * 1000 : totalPackedQty,
+      }))
+    : [
+        {
+          itemNo: 1,
+          codeRef: selectedPo?.itemCode || "-",
+          program: "Program",
+          item: selectedPo?.description || "-",
+          quantity: totalPackedQty,
+        },
+      ];
   const formatCiQuantity = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(3));
   const formatCiUnitPrice = (value: number) => value.toFixed(4);
   const formatCiAmount = (value: number) => value.toFixed(2);
@@ -4863,9 +4972,9 @@ function CommercialInvoicePage({
             <div className="ci-logo-text">SYNSHOO</div>
           </div>
           <div className="ci-company">
-            <h1>ZHE JIANG SYNSHOO IE CO.,LTD.</h1>
-            <p>{selectedPoVendor.address || "NO.288, HAITANG ROAD, BAIBU TOWN, HAIYAN COUNTY, JIAXING CITY, ZHEJIANG PROVINCE CHINA."}</p>
-            <p>Tel: {selectedPoVendor.tel || "(0573) 8677 7015"} Fax: {selectedPoVendor.fax || "(0573) 8678 8092"}</p>
+            <h1>{commercialCompany.name}</h1>
+            <p>{commercialCompany.address}</p>
+            <p>Tel: {commercialCompany.phone} Fax: {commercialCompany.fax}</p>
           </div>
         </div>
 
@@ -4955,26 +5064,6 @@ function CommercialInvoicePage({
           </div>
         </section>
 
-        <section className="ci-pack-block">
-          <div className="ci-pack-title">
-            {t("ci.packTitle")}
-          </div>
-          <div className="ci-pack-table">
-            <div className="ci-pack-row ci-pack-head">
-              <span>{t("po.lot")}</span>
-              <span>{t("po.size")}</span>
-              <span>{t("po.qtyPcs")}</span>
-            </div>
-            {packingRows.map((row, index) => (
-              <div className="ci-pack-row" key={`${selectedPo?.id ?? "ci"}-${index}`}>
-                <span>{row.lot || String(index + 1)}</span>
-                <span>{row.size || " "}</span>
-                <span>{row.quantity || "-"}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
         <section className="ci-footer">
           <div>
             <span>{t("ci.poNumber")}:</span>
@@ -4993,6 +5082,134 @@ function CommercialInvoicePage({
             <strong>{selectedPo?.notes || "-"}</strong>
           </div>
         </section>
+      </article>
+
+      <article className="packing-sheet">
+        <div className="packing-topbar">
+          <div className="packing-logo-block">
+            <div className="packing-logo-mark">S</div>
+            <div className="packing-logo-text">SYNSHOO</div>
+          </div>
+          <div className="packing-company">
+            <h1>{commercialCompany.name}</h1>
+            <p>{commercialCompany.address}</p>
+            <p>Tel: {commercialCompany.phone} Fax: {commercialCompany.fax}</p>
+          </div>
+        </div>
+
+        <h1 className="packing-title">PACKING LIST</h1>
+
+        <section className="packing-meta">
+          <div>
+            <span>Ci Ref:</span>
+            <strong>{invoiceNo}</strong>
+          </div>
+          <div>
+            <span>Contract Ref:</span>
+            <strong>{contractRef}</strong>
+          </div>
+          <div>
+            <span>Date:</span>
+            <strong>{invoiceDate.replace(/-/g, "/")}</strong>
+          </div>
+        </section>
+
+        <section className="packing-address-grid">
+          <div className="packing-address-card">
+            <span>To:</span>
+            <strong>{selectedPoCustomer.name || selectedPo?.customer || "-"}</strong>
+            <p>{selectedPoCustomer.address || selectedPo?.deliverTo || "-"}</p>
+            <p>
+              ATT: {selectedPoCustomer.contact || selectedPoVendor.contact || "-"}<br />
+              ZIP: -<br />
+              TEL: {selectedPoCustomer.phone || "-"}<br />
+              Fax: -
+            </p>
+          </div>
+          <div className="packing-summary-box">
+            <div className="packing-summary-row">
+              <span>Nos of CTNs</span>
+              <strong>{totalCtns}</strong>
+            </div>
+            <div className="packing-summary-row">
+              <span>Gross Weight (kg)</span>
+              <strong>{grossWeight}</strong>
+            </div>
+            <div className="packing-summary-row">
+              <span>Net Weight (kg)</span>
+              <strong>{netWeight}</strong>
+            </div>
+            <div className="packing-summary-row">
+              <span>CBM</span>
+              <strong>{cbm}</strong>
+            </div>
+          </div>
+        </section>
+
+        <div className="packing-awb">AWB: {selectedPo?.poNo || "-"}</div>
+
+        <section className="packing-table">
+          <div className="packing-head">
+            <span>Package No.</span>
+            <span>Lot/P.O.#</span>
+            <span>Code Ref.</span>
+            <span>Size</span>
+            <span>Color</span>
+            <span>No.of Pkgs</span>
+            <span>Quantity[pcs]</span>
+          </div>
+          {packingRowsForList.map((row, index) => {
+            const poLabel = selectedPo?.ourRefNo || selectedPo?.poNo || "-";
+            return (
+              <div className="packing-row" key={`${selectedPo?.id ?? "packing"}-${index}`}>
+                <span>{row.lot || String(index + 1)}</span>
+                <span>{poLabel}</span>
+                <span>{selectedPo?.itemCode || "-"}</span>
+                <span>{row.size || selectedPo?.size || "-"}</span>
+                <span>{selectedPo?.colors || "-"}</span>
+                <span>1</span>
+                <span>{formatCiQuantity(Number(row.quantity || 0))}</span>
+              </div>
+            );
+          })}
+        </section>
+
+        <section className="packing-summary-table">
+          <div className="packing-summary-head">
+            <span>Item</span>
+            <span>Code Ref:</span>
+            <span>Description</span>
+            <span>Total Quantity(PCS)</span>
+          </div>
+          {packingSummaryRows.map((row) => (
+            <div className="packing-summary-row" key={`${row.codeRef}-${row.itemNo}`}>
+              <span>{row.itemNo}</span>
+              <span>{row.codeRef}</span>
+              <span>
+                <div className="packing-summary-description">
+                  <strong>Program</strong>
+                  <div>{row.item}</div>
+                </div>
+              </span>
+              <span>{formatCiQuantity(row.quantity)}</span>
+            </div>
+          ))}
+        </section>
+
+        <footer className="packing-footer">
+          <div className="packing-ack">
+            <strong>Acknowledged Receipt The</strong>
+            <strong>Captioned Goods In Good Conditions</strong>
+          </div>
+          <div className="packing-sign">
+            <span>Prepare by</span>
+            <div className="packing-sign-line" />
+          </div>
+          <div className="packing-stamp">
+            <span>Authenticated Signature &amp; Chop</span>
+            <div className="packing-stamp-line" />
+          </div>
+        </footer>
       </article>
     </div>
   );
@@ -5025,13 +5242,14 @@ function ProductsPage({
         }
       >
       <Table
-        columns={[t("table.image"), t("table.productId"), t("table.productName"), t("table.category"), t("table.price"), t("table.stock"), t("table.actions")]}
-        rows={products.map((item) => [
-          renderProductThumb(item, item.name),
-          item.id,
-          item.name,
-          t(`category.${item.categoryKey}`),
-          formatMoney(item.price, locale),
+          columns={[t("table.image"), t("table.productId"), t("table.productName"), t("table.supplier"), t("table.category"), t("table.price"), t("table.stock"), t("table.actions")]}
+          rows={products.map((item) => [
+            renderProductThumb(item, item.name),
+            item.id,
+            item.name,
+            item.supplier || "-",
+            t(`category.${item.categoryKey}`),
+            formatMoney(item.price, locale),
             String(item.stock),
             <TableActions key={item.id} t={t} onEdit={() => onEditProduct(item)} onDelete={() => onDeleteProduct(item)} />,
           ])}
