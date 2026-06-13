@@ -1,5 +1,5 @@
 type UploadEnv = {
-  ASSETS?: R2Bucket;
+  UPLOADS?: R2Bucket;
 };
 
 function sanitizeSegment(value: string) {
@@ -32,11 +32,20 @@ export function buildPublicUploadUrl(requestUrl: string, key: string) {
   return new URL(`/api/uploads/${key.split("/").map(encodeURIComponent).join("/")}`, requestUrl).toString();
 }
 
-export async function storeImageUpload(env: UploadEnv, request: Request, folder: string) {
-  if (!env.ASSETS) {
-    return { ok: false, status: 503 as const, message: "R2 not configured" };
+async function fileToDataUrl(file: File) {
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
   }
 
+  return `data:${file.type || "application/octet-stream"};base64,${btoa(binary)}`;
+}
+
+export async function storeImageUpload(env: UploadEnv, request: Request, folder: string) {
   const formData = await request.formData().catch(() => null);
   if (!formData) {
     return { ok: false, status: 400 as const, message: "Invalid form data" };
@@ -51,11 +60,22 @@ export async function storeImageUpload(env: UploadEnv, request: Request, folder:
     return { ok: false, status: 400 as const, message: "Only image files are supported" };
   }
 
+  if (!env.UPLOADS) {
+    return {
+      ok: true as const,
+      key: "",
+      url: await fileToDataUrl(file),
+      contentType: file.type || "application/octet-stream",
+      size: file.size,
+      source: "data-url" as const,
+    };
+  }
+
   const fileName = sanitizeSegment(file.name.replace(/\.[^.]+$/, "")) || "image";
   const key = `${folder}/${crypto.randomUUID()}-${fileName}.${guessExtension(file)}`;
   const body = await file.arrayBuffer();
 
-  await env.ASSETS.put(key, body, {
+  await env.UPLOADS.put(key, body, {
     httpMetadata: {
       contentType: file.type || "application/octet-stream",
       cacheControl: "public, max-age=31536000, immutable",
@@ -68,15 +88,16 @@ export async function storeImageUpload(env: UploadEnv, request: Request, folder:
     url: buildPublicUploadUrl(request.url, key),
     contentType: file.type || "application/octet-stream",
     size: file.size,
+    source: "r2" as const,
   };
 }
 
 export async function readImageUpload(env: UploadEnv, key: string) {
-  if (!env.ASSETS) {
+  if (!env.UPLOADS) {
     return { ok: false, status: 503 as const, message: "R2 not configured" };
   }
 
-  const object = await env.ASSETS.get(key);
+  const object = await env.UPLOADS.get(key);
   if (!object) {
     return { ok: false, status: 404 as const, message: "Not found" };
   }

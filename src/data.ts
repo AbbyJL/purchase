@@ -1,6 +1,6 @@
 import { IconBox, IconChartBar, IconFileDescription, IconReceipt2, IconTag, IconTruck, IconUsers, IconFileInvoice } from "@tabler/icons-react";
 import { seedBrands, seedContracts, seedCustomers, seedOrders, seedPOs, seedPIs, seedProducts, seedQuotes, seedSuppliers } from "../shared/seed";
-import type { Brand, Contract, Customer, DashboardStat, Order, PIRecord, PORecord, Product, Quote, Supplier } from "./types";
+import type { Brand, Contract, Customer, DashboardStat, Order, PIRecord, PORecord, Product, Quote, QuoteLine, Supplier } from "./types";
 
 export const dashboardStats: DashboardStat[] = [
   { labelKey: "stat.products", value: "245", icon: IconBox },
@@ -94,12 +94,19 @@ export const quotes: Quote[] = seedQuotes.map((item) => ({
   productCode: item.productCode,
   productName: item.productName,
   status: item.status as Quote["status"],
-  costItems: [...item.costItems],
-  tiers: [...item.tiers],
-  lines: [...item.lines],
+  costItems: item.costItems.map((costItem) => ({ ...costItem })),
+  tiers: item.tiers.map((tier) => ({ ...tier })),
+  lines: item.lines.map(mapQuoteLine),
   imageUrl: item.imageUrl,
   notes: item.notes,
 }));
+
+function mapQuoteLine(item: (typeof seedQuotes)[number]["lines"][number]): QuoteLine {
+  return {
+    ...item,
+    costItems: item.costItems.map((costItem) => ({ ...costItem })),
+  };
+}
 
 export const pis: PIRecord[] = seedPIs.map((item) => ({
   id: item.id,

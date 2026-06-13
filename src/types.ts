@@ -80,6 +80,7 @@ export interface QuoteLine {
   description: string;
   pricingNotes: string;
   cost: string;
+  costItems: QuoteCostItem[];
 }
 
 export interface Quote {
@@ -150,6 +151,8 @@ export interface POLineItem {
   itemDescription: string;
   quantity: number;
   unitPrice: number;
+  productCode?: string;
+  productName?: string;
 }
 
 export interface POPackingRow {

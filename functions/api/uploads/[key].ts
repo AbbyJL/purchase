@@ -1,8 +1,7 @@
 import { readImageUpload } from "../../lib/uploads";
 
 export const onRequestGet: PagesFunction = async (context) => {
-  const url = new URL(context.request.url);
-  const key = url.pathname.replace(/^\/api\/uploads\//, "");
+  const key = decodeURIComponent(context.params.key);
   const result = await readImageUpload(context.env, key);
 
   if (!result.ok) {

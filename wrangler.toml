@@ -6,8 +6,3 @@ pages_build_output_dir = "dist"
 binding = "DB"
 database_name = "woodgrain_ops"
 database_id = "593bdba8-24a3-443d-b212-a2b8e54faef2"
-
-# [[r2_buckets]]
-[[r2_buckets]]
-binding = "ASSETS"
-bucket_name = "woodgrain-assets"
