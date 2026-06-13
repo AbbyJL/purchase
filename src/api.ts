@@ -40,6 +40,7 @@ function mapProduct(item: (typeof seedProducts)[number]): Product {
     price: item.price,
     stock: item.stock,
     status: item.status as Product["status"],
+    imageUrl: item.imageUrl,
   };
 }
 

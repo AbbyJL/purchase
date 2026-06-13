@@ -60,13 +60,14 @@ import {
   customers as fallbackCustomers,
   dashboardStats as fallbackStats,
   orders as fallbackOrders,
+  pos as fallbackPOs,
   pis as fallbackPIs,
   products as fallbackProducts,
   quotes as fallbackQuotes,
   suppliers as fallbackSuppliers,
 } from "./data";
 import { translate } from "./i18n";
-import type { Brand, Contract, Customer, Locale, Order, PIRecord, Product, Quote, QuoteCostItem, QuoteLine, QuoteTier, Supplier, PILineItem } from "./types";
+import type { Brand, Contract, Customer, Locale, Order, PIRecord, PORecord, Product, Quote, QuoteCostItem, QuoteLine, QuoteTier, Supplier, PILineItem } from "./types";
 
 const navItems = [
   { to: "/dashboard", key: "nav.dashboard", icon: IconLayoutDashboard },
@@ -420,8 +421,8 @@ function formatPoQuantity(value: number) {
   return `${value.toFixed(3)} M`;
 }
 
-function getPurchaseOrderVendor(pi?: PIRecord | null): PurchaseOrderVendor {
-  if (!pi) {
+function getPurchaseOrderVendor(po?: PORecord | null): PurchaseOrderVendor {
+  if (!po) {
     return {
       name: "",
       address: "",
@@ -432,7 +433,7 @@ function getPurchaseOrderVendor(pi?: PIRecord | null): PurchaseOrderVendor {
     };
   }
 
-  if (pi.id === "PI001" || pi.piNo === "PO2603428") {
+  if (po.id === "PO001" || po.poNo === "PO2603428") {
     return {
       name: "浙江嘉兴市壹佳印刷有限公司",
       address: "浙江嘉兴市海盐县百步经济开发区百步大道东海棠路288号\n中国",
@@ -444,12 +445,12 @@ function getPurchaseOrderVendor(pi?: PIRecord | null): PurchaseOrderVendor {
   }
 
   return {
-    name: pi.vendor || "",
-    address: "",
-    contact: "Jason",
-    email: "",
-    tel: "",
-    fax: "",
+    name: po.vendor || "",
+    address: po.vendorAddress || "",
+    contact: po.vendorContact || "",
+    email: po.vendorEmail || "",
+    tel: po.vendorTel || "",
+    fax: po.vendorFax || "",
   };
 }
 
@@ -462,6 +463,7 @@ function App() {
   const [suppliers, setSuppliers] = useState(fallbackSuppliers);
   const [quotes, setQuotes] = useState(fallbackQuotes);
   const [pis, setPIs] = useState(fallbackPIs);
+  const [pos, setPOs] = useState(fallbackPOs);
   const [orders, setOrders] = useState(fallbackOrders);
   const [contracts, setContracts] = useState(fallbackContracts);
   const [loading, setLoading] = useState(true);
@@ -611,6 +613,7 @@ function App() {
         setSuppliers(data.suppliers ?? fallbackSuppliers);
         setQuotes(data.quotes ?? fallbackQuotes);
         setPIs(data.pis ?? fallbackPIs);
+        setPOs(data.pos ?? fallbackPOs);
         setOrders(data.orders);
         setContracts(data.contracts);
       } catch {
@@ -663,6 +666,7 @@ function App() {
     setSuppliers(data.suppliers ?? fallbackSuppliers);
     setQuotes(data.quotes ?? fallbackQuotes);
     setPIs(data.pis ?? fallbackPIs);
+    setPOs(data.pos ?? fallbackPOs);
     setOrders(data.orders);
     setContracts(data.contracts);
   }
@@ -1512,15 +1516,20 @@ function App() {
   const quotePreviewTier = calculateQuoteTier(quoteTiers, quotePreviewQty);
   const quotePreviewUnitPrice = getQuoteUnitPrice({ tiers: quoteTiers, costItems: quoteCostItems }, quotePreviewQty);
   const quotePreviewTotal = parseQuantityValue(quotePreviewQty) * quotePreviewUnitPrice;
-  const selectedPoId = new URLSearchParams(location.search).get("pi") ?? pis[0]?.id ?? "";
-  const selectedPo = useMemo(() => pis.find((item) => item.id === selectedPoId || item.piNo === selectedPoId) ?? pis[0] ?? null, [pis, selectedPoId]);
-  const selectedPoVendor = getPurchaseOrderVendor(selectedPo);
-  const openPurchaseOrder = (piId: string) => {
-    navigate(`/po?pi=${encodeURIComponent(piId)}`);
+  const selectedPoId = new URLSearchParams(location.search).get("po") ?? pos[0]?.id ?? "";
+  const selectedPo = useMemo(() => pos.find((item) => item.id === selectedPoId || item.poNo === selectedPoId) ?? pos[0] ?? null, [pos, selectedPoId]);
+  const openPurchaseOrder = (poId: string) => {
+    navigate(`/po?po=${encodeURIComponent(poId)}`);
+  };
+  const openPurchaseOrderFromPI = (pi: PIRecord) => {
+    const po = pos.find((item) => item.sourcePiId === pi.id || item.poNo === pi.piNo) ?? pos[0];
+    if (po) {
+      openPurchaseOrder(po.id);
+    }
   };
 
   return (
-    <div className={currentPage === "po" ? "app-shell document-shell" : "app-shell"}>
+    <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
@@ -1719,7 +1728,7 @@ function App() {
                 onStartCreate={startCreatePI}
                 onEditPI={startEditPI}
                 onDeletePI={removePI}
-                onOpenPurchaseOrder={(pi) => openPurchaseOrder(pi.id)}
+                onOpenPurchaseOrder={openPurchaseOrderFromPI}
                 onGenerateFromOrder={generatePIFromOrder}
                 onGenerateFromQuote={generatePIFromQuote}
                 orders={orders}
@@ -1733,9 +1742,8 @@ function App() {
               <PurchaseOrderPage
                 locale={locale}
                 t={t}
-                pis={pis}
+                pos={pos}
                 selectedPo={selectedPo}
-                selectedPoVendor={selectedPoVendor}
                 onSelectPo={openPurchaseOrder}
                 onExportPdf={() => window.print()}
               />
@@ -2120,7 +2128,30 @@ function App() {
                 </div>
               </section>
 
-              <section className="quote-lines-panel">
+              <div className="quote-toolbar">
+                <label className="inline-field quote-item-field">
+                  <span>{t("form.quoteItem")} / ITEM</span>
+                  <input value={quoteDraft.item} onChange={(event) => setQuoteDraft({ ...quoteDraft, item: event.target.value })} placeholder="信封 / 贴纸 / 纸卡" />
+                </label>
+                <div className="quote-toolbar-buttons">
+                  <button
+                    type="button"
+                    className="secondary-button tiny-button"
+                    onClick={() => document.getElementById("quote-lines-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  >
+                    PO明细
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button tiny-button"
+                    onClick={() => document.getElementById("quote-costs-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  >
+                    用纸明细
+                  </button>
+                </div>
+              </div>
+
+              <section className="quote-lines-panel" id="quote-lines-panel">
                 <div className="editable-head">
                   <strong>{t("table.quoteLines")}</strong>
                   <button type="button" className="secondary-button tiny-button" onClick={() => setQuoteLines((current) => [...current, createQuoteLine()])}>
@@ -2149,6 +2180,7 @@ function App() {
                         />
                       </label>
                       <label className="quote-line-image">
+                        {line.imageUrl ? <img src={line.imageUrl} alt={line.productName || line.productCode || "quote line"} /> : <div className="quote-line-thumb placeholder"><IconPhoto size={18} strokeWidth={2} /></div>}
                         <input value={line.imageUrl} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, imageUrl: event.target.value } : row)))} placeholder="Image URL" />
                       </label>
                       <div className="quote-line-item">
@@ -2215,7 +2247,7 @@ function App() {
                 </div>
               </section>
 
-              <div className="quote-secondary-grid">
+              <div className="quote-secondary-grid" id="quote-costs-panel">
                 <div className="editable-block">
                   <div className="editable-head">
                     <strong>{t("form.quoteCostItem")}</strong>
@@ -3111,64 +3143,86 @@ function PIsPage({
 function PurchaseOrderPage({
   locale,
   t,
-  pis,
+  pos,
   selectedPo,
-  selectedPoVendor,
   onSelectPo,
   onExportPdf,
 }: {
   locale: Locale;
   t: (key: string) => string;
-  pis: PIRecord[];
-  selectedPo: PIRecord | null;
-  selectedPoVendor: PurchaseOrderVendor;
-  onSelectPo: (piId: string) => void;
+  pos: PORecord[];
+  selectedPo: PORecord | null;
+  onSelectPo: (poId: string) => void;
   onExportPdf: () => void;
 }) {
+  const vendor = getPurchaseOrderVendor(selectedPo);
   const sourceLine = selectedPo?.lines?.[0] ?? null;
   const lineQuantity = sourceLine?.quantity ?? 0;
   const lineUnitPrice = sourceLine?.unitPrice ?? 0;
   const lineAmount = lineQuantity * lineUnitPrice;
   const totalAmount = selectedPo?.lines.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) ?? 0;
-  const packingQty =
-    selectedPo?.sizeDetails?.reduce((sum, detail) => sum + Number(detail.quantity || 0), 0) ||
-    Math.round(lineQuantity * 1000) ||
-    0;
+  const packingQty = selectedPo?.packingRows?.reduce((sum, detail) => sum + Number(detail.quantity || 0), 0) || Math.round(lineQuantity * 1000) || 0;
 
   return (
     <div className="page-stack po-page">
-      <div className="po-toolbar no-print">
-        <div className="po-toolbar-copy">
-          <h2>{t("page.po")}</h2>
-          <p>{t("po.previewSubtitle")}</p>
-        </div>
-        <div className="po-toolbar-actions">
-          <label className="po-select">
+      <SectionShell
+        title={t("po.listTitle")}
+        action={
+          <div className="section-actions no-print">
+            <button className="primary-button" type="button" onClick={onExportPdf} disabled={!selectedPo}>
+              <IconDownload size={18} strokeWidth={2} />
+              {t("button.exportPdf")}
+            </button>
+          </div>
+        }
+      >
+        <div className="po-toolbar">
+          <div className="po-toolbar-copy">
+            <p>{t("po.listSubtitle")}</p>
+          </div>
+          <label className="po-select no-print">
             <span>{t("po.selectSource")}</span>
             <select value={selectedPo?.id ?? ""} onChange={(event) => onSelectPo(event.target.value)}>
-              {pis.map((pi) => (
-                <option key={pi.id} value={pi.id}>
-                  {pi.piNo} · {pi.customer}
+              {pos.map((po) => (
+                <option key={po.id} value={po.id}>
+                  {po.poNo} · {po.customer}
                 </option>
               ))}
             </select>
           </label>
-          <button className="primary-button" type="button" onClick={onExportPdf}>
-            <IconDownload size={18} strokeWidth={2} />
-            {t("button.exportPdf")}
-          </button>
         </div>
-      </div>
+
+        <Table
+          columns={[t("table.poNo"), t("table.poVendor"), t("table.poRefNo"), t("table.customer"), t("table.poDate"), t("table.piDeliveryDate"), t("table.status"), t("table.actions")]}
+          rows={pos.map((item) => [
+            item.poNo,
+            item.vendor,
+            item.ourRefNo || "-",
+            item.customer,
+            item.date,
+            item.deliveryDate || "-",
+            <span className={`status-pill status-${item.status.toLowerCase()}`} key={`${item.id}-status`}>
+              {t(`status.${item.status}`)}
+            </span>,
+            <div className="action-links" key={`${item.id}-actions`}>
+              <button type="button" className="action-link preview" onClick={() => onSelectPo(item.id)}>
+                <IconCopy size={16} strokeWidth={2} />
+                {t("button.previewPO")}
+              </button>
+            </div>,
+          ])}
+        />
+      </SectionShell>
 
       <article className="po-sheet">
         <div className="po-top-rule" />
         <header className="po-header">
           <h1>
             <span>PURCHASE ORDER NO. / 訂單號碼：</span>
-            <strong>{selectedPo?.piNo || "-"}</strong>
+            <strong>{selectedPo?.poNo || "-"}</strong>
           </h1>
           <div className="po-date">
-            {t("po.date")}: <strong>{selectedPo ? selectedPo.generatedAt.slice(0, 10) : "-"}</strong>
+            {t("po.date")}: <strong>{selectedPo?.date || "-"}</strong>
           </div>
         </header>
 
@@ -3176,22 +3230,22 @@ function PurchaseOrderPage({
           <h2>{t("po.vendorInfo")}</h2>
           <div className="po-vendor-grid">
             <div className="po-vendor-main">
-              <strong>{selectedPoVendor.name || selectedPo?.vendor || "-"}</strong>
-              <p>{selectedPoVendor.address || "-"}</p>
+              <strong>{vendor.name || "-"}</strong>
+              <p>{vendor.address || "-"}</p>
               <p>
-                {selectedPoVendor.contact || "-"}, {selectedPoVendor.email || "-"}
+                {vendor.contact || "-"}, {vendor.email || "-"}
               </p>
               <p>
-                TEL: {selectedPoVendor.tel || "-"}, FAX: {selectedPoVendor.fax || "-"}
+                TEL: {vendor.tel || "-"}, FAX: {vendor.fax || "-"}
               </p>
             </div>
             <div className="po-vendor-meta">
               <div>
-                <span>{t("table.piOurRefNo")}</span>
+                <span>{t("table.poRefNo")}</span>
                 <strong>{selectedPo?.ourRefNo || "-"}</strong>
               </div>
               <div>
-                <span>{t("table.piDeliveryDate")}</span>
+                <span>{t("table.poDate")}</span>
                 <strong>{selectedPo?.deliveryDate || "-"}</strong>
               </div>
               <div className="po-deliver-to">
@@ -3211,9 +3265,9 @@ function PurchaseOrderPage({
           </div>
           <div className="po-item-row">
             <div className="po-item-desc">
-              <strong>{selectedPo?.itemCode || sourceLine?.productCode || "-"}</strong>
-              <p>{selectedPo?.description || sourceLine?.productName || "-"}</p>
-              <p>{selectedPo?.productType || sourceLine?.productName || "-"}</p>
+              <strong>{selectedPo?.itemCode || sourceLine?.itemCode || "-"}</strong>
+              <p>{selectedPo?.description || sourceLine?.itemDescription || "-"}</p>
+              <p>{selectedPo?.productType || sourceLine?.itemDescription || "-"}</p>
               <p>{selectedPo?.size ? `- ${selectedPo.size}` : ""}</p>
             </div>
             <div className="po-item-qty">{formatPoQuantity(lineQuantity)}</div>
@@ -3222,9 +3276,7 @@ function PurchaseOrderPage({
           </div>
           <div className="po-total-row">
             <span>TOTAL</span>
-            <strong>
-              {formatPoMoney(totalAmount)} RMB
-            </strong>
+            <strong>{formatPoMoney(totalAmount)} RMB</strong>
           </div>
         </section>
 
@@ -3272,11 +3324,13 @@ function PurchaseOrderPage({
               <span>{t("po.size")}</span>
               <span>{t("po.qtyPcs")}</span>
             </div>
-            <div className="po-pack-row">
-              <span>1</span>
-              <span>&nbsp;</span>
-              <span>{packingQty || "-"}</span>
-            </div>
+            {(selectedPo?.packingRows?.length ? selectedPo.packingRows : [{ lot: "1", size: "", quantity: packingQty }]).map((row, index) => (
+              <div className="po-pack-row" key={`${selectedPo?.id ?? "po"}-${index}`}>
+                <span>{row.lot || String(index + 1)}</span>
+                <span>{row.size || " "}</span>
+                <span>{row.quantity || "-"}</span>
+              </div>
+            ))}
           </div>
         </section>
       </article>
