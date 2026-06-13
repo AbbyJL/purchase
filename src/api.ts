@@ -395,3 +395,23 @@ export async function deletePI(id: string) {
     method: "DELETE",
   });
 }
+
+export async function createPO(input: Partial<PORecord> & { id?: string }) {
+  return requestJson<JsonResponse<PORecord> | { ok: boolean; po: PORecord }>("/api/pos", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updatePO(input: Partial<PORecord> & { id: string }) {
+  return requestJson<{ ok: boolean }>("/api/pos", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deletePO(id: string) {
+  return requestJson<{ ok: boolean }>(`/api/pos?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}

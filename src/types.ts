@@ -83,6 +83,7 @@ export interface QuoteLine {
   colorValue?: string;
   finishedValue?: string;
   remarksValue?: string;
+  specLocked?: boolean;
   pricingNotes: string;
   cost: string;
   costItems: QuoteCostItem[];

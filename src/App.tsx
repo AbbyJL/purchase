@@ -1,15 +1,15 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   IconBell,
   IconBox,
   IconChartBar,
   IconChevronRight,
+  IconChevronLeft,
   IconCopy,
   IconEdit,
   IconDownload,
-  IconFileDescription,
   IconFileInvoice,
   IconHome2,
   IconLanguage,
@@ -20,9 +20,10 @@ import {
   IconSearch,
   IconTag,
   IconSettings2,
-  IconShoppingCart,
   IconTruck,
   IconUsers,
+  IconLock,
+  IconLockOpen,
   IconReceipt2,
   IconX,
   IconTrash,
@@ -34,6 +35,7 @@ import {
   createCustomer as apiCreateCustomer,
   createOrder as apiCreateOrder,
   createPI as apiCreatePI,
+  createPO as apiCreatePO,
   createProduct as apiCreateProduct,
   createQuote as apiCreateQuote,
   createSupplier as apiCreateSupplier,
@@ -42,6 +44,7 @@ import {
   deleteContract as apiDeleteContract,
   deleteOrder as apiDeleteOrder,
   deletePI as apiDeletePI,
+  deletePO as apiDeletePO,
   deleteProduct as apiDeleteProduct,
   deleteQuote as apiDeleteQuote,
   deleteSupplier as apiDeleteSupplier,
@@ -51,6 +54,7 @@ import {
   updateContract as apiUpdateContract,
   updateOrder as apiUpdateOrder,
   updatePI as apiUpdatePI,
+  updatePO as apiUpdatePO,
   updateProduct as apiUpdateProduct,
   updateQuote as apiUpdateQuote,
   updateSupplier as apiUpdateSupplier,
@@ -80,8 +84,6 @@ const navItems = [
   { to: "/pis", key: "nav.pis", icon: IconFileInvoice },
   { to: "/po", key: "nav.po", icon: IconReceipt2 },
   { to: "/commercial-invoices", key: "nav.commercialInvoices", icon: IconFileInvoice },
-  { to: "/orders", key: "nav.orders", icon: IconShoppingCart },
-  { to: "/contracts", key: "nav.contracts", icon: IconFileDescription },
   { to: "/settings", key: "nav.settings", icon: IconSettings2 },
 ] as const;
 
@@ -203,7 +205,34 @@ type PIDraft = {
   notes: string;
 };
 
-type ModalKind = "product" | "brand" | "customer" | "supplier" | "quote" | "pi" | "order" | "contract";
+type PODraft = {
+  id?: string;
+  poNo: string;
+  sourcePiId: string;
+  date: string;
+  vendor: string;
+  vendorAddress: string;
+  vendorContact: string;
+  vendorEmail: string;
+  vendorTel: string;
+  vendorFax: string;
+  customer: string;
+  ourRefNo: string;
+  deliveryDate: string;
+  deliverTo: string;
+  status: PORecord["status"];
+  itemCode: string;
+  description: string;
+  productType: string;
+  size: string;
+  colors: string;
+  finished: string;
+  remarks: string;
+  notes: string;
+  imageUrl: string;
+};
+
+type ModalKind = "product" | "brand" | "customer" | "supplier" | "quote" | "pi" | "po" | "order" | "contract";
 
 const emptyDraft: ProductDraft = {
   name: "",
@@ -399,6 +428,32 @@ const emptyPIDraft: PIDraft = {
   remarks: "",
   imageUrl: "",
   notes: "",
+};
+
+const emptyPODraft: PODraft = {
+  poNo: "",
+  sourcePiId: "",
+  date: new Date().toISOString().slice(0, 10),
+  vendor: "",
+  vendorAddress: "",
+  vendorContact: "",
+  vendorEmail: "",
+  vendorTel: "",
+  vendorFax: "",
+  customer: "",
+  ourRefNo: "",
+  deliveryDate: "",
+  deliverTo: "",
+  status: "Draft",
+  itemCode: "",
+  description: "",
+  productType: "",
+  size: "",
+  colors: "",
+  finished: "",
+  remarks: "",
+  notes: "",
+  imageUrl: "",
 };
 
 function createRowId(prefix: string) {
@@ -818,6 +873,8 @@ function App() {
   const [piLines, setPILines] = useState<PILineItem[]>([]);
   const [piSizeDetails, setPISizeDetails] = useState<PISizeDraft[]>([]);
   const [editingPIId, setEditingPIId] = useState<string | null>(null);
+  const [poDraft, setPODraft] = useState<PODraft>(emptyPODraft);
+  const [editingPoId, setEditingPoId] = useState<string | null>(null);
   const [orderDraft, setOrderDraft] = useState<OrderDraft>(emptyOrderDraft);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [contractDraft, setContractDraft] = useState<ContractDraft>(emptyContractDraft);
@@ -827,6 +884,7 @@ function App() {
   const t = (key: string) => translate(locale, key);
 
   const currentPage = useMemo(() => {
+    if (location.pathname.startsWith("/pis/preview")) return "pi-preview";
     if (location.pathname.startsWith("/pis/print")) return "pi-print";
     if (location.pathname.startsWith("/products")) return "products";
     if (location.pathname.startsWith("/brands")) return "brands";
@@ -834,6 +892,7 @@ function App() {
     if (location.pathname.startsWith("/suppliers")) return "suppliers";
     if (location.pathname.startsWith("/quotes")) return "quotes";
     if (location.pathname.startsWith("/pis")) return "pis";
+    if (location.pathname.startsWith("/po/")) return "po-detail";
     if (location.pathname.startsWith("/po")) return "po";
     if (location.pathname.startsWith("/commercial-invoices")) return "commercial-invoices";
     if (location.pathname.startsWith("/orders")) return "orders";
@@ -957,6 +1016,8 @@ function App() {
                   ? "page.pis"
                   : currentPage === "po"
                     ? "page.po"
+                  : currentPage === "po-detail"
+                    ? "page.poDetail"
                     : currentPage === "commercial-invoices"
                       ? "page.commercialInvoices"
                     : currentPage === "orders"
@@ -1383,6 +1444,18 @@ function App() {
       return;
     }
 
+    // Check for duplicate brand names (case-insensitive)
+    const normalizedName = draft.name.toLowerCase().replace(/\s+/g, "");
+    const duplicate = brands.find(
+      (item) =>
+        item.id !== editingBrandId &&
+        item.name.toLowerCase().replace(/\s+/g, "") === normalizedName,
+    );
+    if (duplicate) {
+      setNotice(`${draft.name}: ${t("notice.brandDuplicate")}`);
+      return;
+    }
+
     if (editingBrandId) {
       setBrands((current) => current.map((item) => (item.id === editingBrandId ? draft : item)));
     } else {
@@ -1401,6 +1474,27 @@ function App() {
       setNotice(t("notice.savedLocally"));
     } finally {
       closeModal();
+    }
+  }
+
+  function handleCheckBrands(brandsList: Brand[]) {
+    const issues: string[] = [];
+    const seen = new Map<string, Brand[]>();
+    for (const b of brandsList) {
+      const key = b.name.toLowerCase().replace(/\s+/g, "");
+      const existing = seen.get(key) || [];
+      existing.push(b);
+      seen.set(key, existing);
+    }
+    for (const [, group] of seen) {
+      if (group.length > 1) {
+        issues.push(group.map((b) => b.name).join(" / "));
+      }
+    }
+    if (issues.length > 0) {
+      setNotice(`${t("notice.brandNameWarning")}: ${issues.join("; ")}`);
+    } else {
+      setNotice(t("notice.saved"));
     }
   }
 
@@ -1896,21 +1990,137 @@ function App() {
     }
   }
 
+  function startCreatePO(sourcePi?: PIRecord) {
+    setEditingPoId(null);
+    setPODraft(sourcePi ? {
+      ...emptyPODraft,
+      sourcePiId: sourcePi.id,
+      customer: sourcePi.customer,
+    } : emptyPODraft);
+    setNotice(null);
+    setActiveModal("po");
+  }
+
+  function startEditPO(po: PORecord) {
+    setEditingPoId(po.id);
+    setPODraft({
+      id: po.id,
+      poNo: po.poNo,
+      sourcePiId: po.sourcePiId,
+      date: po.date,
+      vendor: po.vendor,
+      vendorAddress: po.vendorAddress,
+      vendorContact: po.vendorContact,
+      vendorEmail: po.vendorEmail,
+      vendorTel: po.vendorTel,
+      vendorFax: po.vendorFax,
+      customer: po.customer,
+      ourRefNo: po.ourRefNo,
+      deliveryDate: po.deliveryDate,
+      deliverTo: po.deliverTo,
+      status: po.status,
+      itemCode: po.itemCode,
+      description: po.description,
+      productType: po.productType,
+      size: po.size,
+      colors: po.colors,
+      finished: po.finished,
+      remarks: po.remarks,
+      notes: po.notes,
+      imageUrl: po.imageUrl,
+    });
+    setNotice(null);
+    setActiveModal("po");
+  }
+
+  async function submitPODraft(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const draft = {
+      id: editingPoId ?? createRowId("PO"),
+      poNo: poDraft.poNo.trim() || createRowId("PO"),
+      sourcePiId: poDraft.sourcePiId.trim(),
+      date: poDraft.date,
+      vendor: poDraft.vendor.trim(),
+      vendorAddress: poDraft.vendorAddress.trim(),
+      vendorContact: poDraft.vendorContact.trim(),
+      vendorEmail: poDraft.vendorEmail.trim(),
+      vendorTel: poDraft.vendorTel.trim(),
+      vendorFax: poDraft.vendorFax.trim(),
+      customer: poDraft.customer.trim(),
+      ourRefNo: poDraft.ourRefNo.trim(),
+      deliveryDate: poDraft.deliveryDate,
+      deliverTo: poDraft.deliverTo.trim(),
+      status: poDraft.status,
+      itemCode: poDraft.itemCode.trim(),
+      description: poDraft.description.trim(),
+      productType: poDraft.productType.trim(),
+      size: poDraft.size.trim(),
+      colors: poDraft.colors.trim(),
+      finished: poDraft.finished.trim(),
+      remarks: poDraft.remarks.trim(),
+      lines: [],
+      packingRows: [],
+      notes: poDraft.notes.trim(),
+      imageUrl: poDraft.imageUrl.trim(),
+    } satisfies PORecord;
+
+    if (!draft.poNo || !draft.customer) {
+      setNotice(t("notice.poRequired"));
+      return;
+    }
+
+    setPOs((current) => (editingPoId ? current.map((item) => (item.id === editingPoId ? draft : item)) : [draft, ...current]));
+
+    try {
+      if (editingPoId) {
+        await apiUpdatePO(draft);
+      } else {
+        await apiCreatePO(draft);
+      }
+      await refreshRemoteData();
+      setNotice(t("notice.saved"));
+    } catch {
+      setNotice(t("notice.savedLocally"));
+    } finally {
+      closeModal();
+    }
+  }
+
+  async function removePO(po: PORecord) {
+    const confirmed = window.confirm(`${t("confirm.deletePO")} ${po.poNo}?`);
+    if (!confirmed) return;
+
+    setPOs((current) => current.filter((item) => item.id !== po.id));
+
+    try {
+      await apiDeletePO(po.id);
+      await refreshRemoteData();
+      setNotice(t("notice.deleted"));
+    } catch {
+      setNotice(t("notice.deletedLocally"));
+    }
+  }
+
   const quotePreviewTier = calculateQuoteTier(quoteTiers, quotePreviewQty);
   const quotePreviewCostItems = quoteLines.find((line) => line.costItems?.length)?.costItems ?? quoteLines[0]?.costItems ?? [];
   const quotePreviewUnitPrice = getQuoteUnitPrice({ tiers: quoteTiers, costItems: quotePreviewCostItems }, quotePreviewQty);
   const quotePreviewTotal = parseQuantityValue(quotePreviewQty) * quotePreviewUnitPrice;
-  const selectedPoId = new URLSearchParams(location.search).get("po") ?? pos[0]?.id ?? "";
-  const selectedPo = useMemo(() => pos.find((item) => item.id === selectedPoId || item.poNo === selectedPoId) ?? pos[0] ?? null, [pos, selectedPoId]);
   const openPurchaseOrder = (poId: string) => {
-    navigate(`/po?po=${encodeURIComponent(poId)}`);
+    navigate(`/po/${encodeURIComponent(poId)}`);
   };
   const selectedPiId = new URLSearchParams(location.search).get("pi") ?? pis[0]?.id ?? "";
   const selectedPi = useMemo(() => pis.find((item) => item.id === selectedPiId || item.piNo === selectedPiId) ?? pis[0] ?? null, [pis, selectedPiId]);
   const selectedPiCustomer = getPartyDetails(customers.find((item) => item.name === selectedPi?.customer) ?? null);
-  const selectedPiVendor = getPartyDetails(suppliers.find((item) => item.name === selectedPi?.vendor) ?? null);
+  const selectedPiVendor = (() => {
+    const linkedPO = selectedPi ? pos.find((po) => po.sourcePiId === selectedPi.id || po.poNo === selectedPi.piNo) : null;
+    const vendorName = linkedPO?.vendor || selectedPi?.vendor || "";
+    return getPartyDetails(suppliers.find((item) => item.name === vendorName) ?? (vendorName ? { id: "", name: vendorName, address: linkedPO?.vendorAddress ?? "", contact: linkedPO?.vendorContact ?? "", email: linkedPO?.vendorEmail ?? "", phone: linkedPO?.vendorTel ?? "", website: "", notes: "", status: "active" } : null));
+  })();
   const openProformaInvoice = (pi: PIRecord) => {
     window.open(pi.pdfUrl || `/pis/print?pi=${encodeURIComponent(pi.id)}`, "_blank", "noopener,noreferrer");
+  };
+  const openProformaInvoicePreview = (pi: PIRecord) => {
+    navigate(`/pis/preview?pi=${encodeURIComponent(pi.id)}`);
   };
   const selectedCommercialInvoiceId = new URLSearchParams(location.search).get("ci") ?? pos[0]?.id ?? "";
   const selectedCommercialInvoice = useMemo(
@@ -1922,14 +2132,16 @@ function App() {
     navigate(`/commercial-invoices?ci=${encodeURIComponent(poId)}`);
   };
   const openPurchaseOrderFromPI = (pi: PIRecord) => {
-    const po = pos.find((item) => item.sourcePiId === pi.id || item.poNo === pi.piNo) ?? pos[0];
+    const po = pos.find((item) => item.sourcePiId === pi.id || item.poNo === pi.piNo);
     if (po) {
       openPurchaseOrder(po.id);
+    } else {
+      startCreatePO(pi);
     }
   };
 
   return (
-    <div className={currentPage === "po" || currentPage === "commercial-invoices" || currentPage === "pi-print" ? "app-shell document-shell print-shell" : "app-shell"}>
+    <div className={currentPage === "po-detail" || currentPage === "commercial-invoices" || currentPage === "pi-print" || currentPage === "pi-preview" ? "app-shell document-shell print-shell" : "app-shell"}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
@@ -1997,7 +2209,7 @@ function App() {
                         ? t("search.quotes")
                   : currentPage === "pis"
                     ? t("search.pis")
-                    : currentPage === "po"
+                    : currentPage === "po" || currentPage === "po-detail"
                       ? t("search.po")
                       : currentPage === "commercial-invoices"
                         ? t("search.commercialInvoices")
@@ -2047,7 +2259,7 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route
             path="/dashboard"
-            element={<DashboardPage locale={locale} t={t} products={products} brands={brands} orders={orders} contracts={contracts} onEditProduct={startEditProduct} onDeleteProduct={removeProduct} onEditBrand={startEditBrand} onDeleteBrand={removeBrand} />}
+            element={<DashboardPage locale={locale} t={t} products={products} brands={brands} orders={orders} contracts={contracts} quotes={quotes} onEditProduct={startEditProduct} onDeleteProduct={removeProduct} onEditBrand={startEditBrand} onDeleteBrand={removeBrand} />}
           />
           <Route
             path="/products"
@@ -2072,6 +2284,7 @@ function App() {
                 onStartCreate={startCreateBrand}
                 onEditBrand={startEditBrand}
                 onDeleteBrand={removeBrand}
+                onCheckBrands={handleCheckBrands}
               />
             }
           />
@@ -2127,15 +2340,32 @@ function App() {
                 locale={locale}
                 t={t}
                 pis={pis}
+                pos={pos}
                 onStartCreate={startCreatePI}
                 onEditPI={startEditPI}
                 onDeletePI={removePI}
                 onOpenPurchaseOrder={openPurchaseOrderFromPI}
+                onPreviewPI={openProformaInvoicePreview}
                 onGeneratePdf={openProformaInvoice}
                 onGenerateFromOrder={generatePIFromOrder}
                 onGenerateFromQuote={generatePIFromQuote}
                 orders={orders}
                 quotes={quotes}
+              />
+            }
+          />
+          <Route
+            path="/pis/preview"
+            element={
+              <ProformaInvoicePage
+                locale={locale}
+                t={t}
+                pis={pis}
+                selectedPi={selectedPi}
+                selectedPiCustomer={selectedPiCustomer}
+                selectedPiVendor={selectedPiVendor}
+                onSelectPi={(piId) => navigate(`/pis/preview?pi=${encodeURIComponent(piId)}`)}
+                onExportPdf={() => window.print()}
               />
             }
           />
@@ -2155,15 +2385,26 @@ function App() {
             }
           />
           <Route
+            path="/po/:poId"
+            element={
+              <PoDetailPage
+                locale={locale}
+                t={t}
+                pos={pos as PORecord[]}
+              />
+            }
+          />
+          <Route
             path="/po"
             element={
               <PurchaseOrderPage
                 locale={locale}
                 t={t}
                 pos={pos as PORecord[]}
-                selectedPo={selectedPo as PORecord | null}
-                onSelectPo={openPurchaseOrder}
-                onExportPdf={() => window.print()}
+                onStartCreate={startCreatePO}
+                onEditPO={startEditPO}
+                onDeletePO={removePO}
+                onPreviewPO={(po) => navigate(`/po/${encodeURIComponent(po.id)}`)}
               />
             }
           />
@@ -2635,8 +2876,11 @@ function App() {
                     <span>SPEC</span>
                     <span>PRICING</span>
                     <span>COST</span>
+                    <span className="cost-col-toggle">{t("form.quoteCostToggle")}</span>
                   </div>
-                  {quoteLines.map((line, index) => (
+                  {quoteLines.map((line, index) => {
+                    const hasCostItems = (line.costItems ?? []).length > 0;
+                    return (
                     <div className="quote-line-group" key={line.id ?? index}>
                       <div className="quote-line-row">
                         <label className="quote-line-check">
@@ -2687,59 +2931,89 @@ function App() {
                           placeholder="0"
                         />
                         <div className="quote-line-specs">
-                          <label>
-                            <span>{quoteSpecFieldLabels.type}</span>
-                            <select value={line.typeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "type", event.target.value)}>
-                              <option value="">-</option>
-                              {quoteSpecOptions.type.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            <span>{quoteSpecFieldLabels.size}</span>
-                            <select value={line.sizeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "size", event.target.value)}>
-                              <option value="">-</option>
-                              {quoteSpecOptions.size.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            <span>{quoteSpecFieldLabels.color}</span>
-                            <select value={line.colorValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "color", event.target.value)}>
-                              <option value="">-</option>
-                              {quoteSpecOptions.color.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            <span>{quoteSpecFieldLabels.finished}</span>
-                            <select value={line.finishedValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "finished", event.target.value)}>
-                              <option value="">-</option>
-                              {quoteSpecOptions.finished.map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="quote-line-remarks">
-                            <span>REMARKS</span>
-                            <textarea
-                              rows={5}
-                              value={line.remarksValue ?? ""}
-                              onChange={(event) => setQuoteLineRemarks(index, event.target.value)}
-                              placeholder="备注说明"
-                            />
-                          </label>
+                          <button
+                            type="button"
+                            className={`spec-lock-btn${line.specLocked ? " locked" : ""}`}
+                            onClick={() => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, specLocked: !row.specLocked } : row)))}
+                            title={line.specLocked ? t("form.specUnlock") : t("form.specLock")}
+                          >
+                            {line.specLocked ? <IconLock size={14} strokeWidth={2} /> : <IconLockOpen size={14} strokeWidth={2} />}
+                          </button>
+                          {line.specLocked ? (
+                            <div className="quote-spec-readonly">
+                              {(["type","size","color","finished"] as QuoteSpecField[]).map((field) => {
+                                const value = line[quoteSpecValueKeys[field]];
+                                return value ? (
+                                  <div key={field} className="spec-readonly-line">
+                                    <span className="spec-readonly-label">{quoteSpecFieldLabels[field]}:</span>
+                                    <span className="spec-readonly-value">{value}</span>
+                                  </div>
+                                ) : null;
+                              })}
+                              {line.remarksValue ? (
+                                <div className="spec-readonly-line remarks">
+                                  <span className="spec-readonly-label">REMARKS:</span>
+                                  <span className="spec-readonly-value">{line.remarksValue}</span>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <>
+                              <label>
+                                <span>{quoteSpecFieldLabels.type}</span>
+                                <select value={line.typeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "type", event.target.value)}>
+                                  <option value="">-</option>
+                                  {quoteSpecOptions.type.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>{quoteSpecFieldLabels.size}</span>
+                                <select value={line.sizeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "size", event.target.value)}>
+                                  <option value="">-</option>
+                                  {quoteSpecOptions.size.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>{quoteSpecFieldLabels.color}</span>
+                                <select value={line.colorValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "color", event.target.value)}>
+                                  <option value="">-</option>
+                                  {quoteSpecOptions.color.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>{quoteSpecFieldLabels.finished}</span>
+                                <select value={line.finishedValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "finished", event.target.value)}>
+                                  <option value="">-</option>
+                                  {quoteSpecOptions.finished.map((option) => (
+                                    <option key={option} value={option}>
+                                      {option}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="quote-line-remarks">
+                                <span>REMARKS</span>
+                                <textarea
+                                  rows={5}
+                                  value={line.remarksValue ?? ""}
+                                  onChange={(event) => setQuoteLineRemarks(index, event.target.value)}
+                                  placeholder="备注说明"
+                                />
+                              </label>
+                            </>
+                          )}
                         </div>
                         <textarea
                           rows={5}
@@ -2758,14 +3032,78 @@ function App() {
                             {t("action.delete")}
                           </button>
                         </div>
-                      </div>
 
-                      <div className="quote-line-cost-panel">
-                        <div className="editable-head">
-                          <strong>{t("form.quoteCostItem")}</strong>
+                        <div className="quote-line-cost-side">
+                          {hasCostItems ? (
+                            <div className="cost-mini-list">
+                              {(line.costItems ?? []).map((item, costIndex) => (
+                                <div className="cost-mini-row" key={item.id ?? costIndex}>
+                                  <select
+                                    value={item.label}
+                                    onChange={(event) =>
+                                      setQuoteLines((current) =>
+                                        current.map((row, rowIndex) =>
+                                          rowIndex === index
+                                            ? {
+                                                ...row,
+                                                costItems: (row.costItems ?? []).map((costItem, rowCostIndex) =>
+                                                  rowCostIndex === costIndex ? { ...costItem, label: event.target.value } : costItem,
+                                                ),
+                                              }
+                                            : row,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    {quoteCostItemOptions.map((option) => (
+                                      <option key={option} value={option}>
+                                        {option}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={item.amount}
+                                    onChange={(event) =>
+                                      setQuoteLines((current) =>
+                                        current.map((row, rowIndex) =>
+                                          rowIndex === index
+                                            ? {
+                                                ...row,
+                                                costItems: (row.costItems ?? []).map((costItem, rowCostIndex) =>
+                                                  rowCostIndex === costIndex ? { ...costItem, amount: Number(event.target.value) } : costItem,
+                                                ),
+                                              }
+                                            : row,
+                                        ),
+                                      )
+                                    }
+                                    placeholder="0.18"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="action-link delete"
+                                    onClick={() =>
+                                      setQuoteLines((current) =>
+                                        current.map((row, rowIndex) =>
+                                          rowIndex === index
+                                            ? { ...row, costItems: (row.costItems ?? []).filter((_, rowCostIndex) => rowCostIndex !== costIndex) }
+                                            : row,
+                                        ),
+                                      )
+                                    }
+                                  >
+                                    <IconTrash size={14} strokeWidth={2} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                           <button
                             type="button"
-                            className="secondary-button tiny-button"
+                            className="secondary-button tiny-button cost-add-btn"
                             onClick={() =>
                               setQuoteLines((current) =>
                                 current.map((row, rowIndex) =>
@@ -2779,92 +3117,28 @@ function App() {
                               )
                             }
                           >
-                            <IconPlus size={16} strokeWidth={2} />
-                            {t("button.addQuoteCostItem")}
+                            <IconPlus size={14} strokeWidth={2} />
                           </button>
-                        </div>
-                        <div className="editable-list">
-                          {(line.costItems ?? []).map((item, costIndex) => (
-                            <div className="editable-row" key={item.id ?? costIndex}>
-                              <select
-                                value={item.label}
-                                onChange={(event) =>
-                                  setQuoteLines((current) =>
-                                    current.map((row, rowIndex) =>
-                                      rowIndex === index
-                                        ? {
-                                            ...row,
-                                            costItems: (row.costItems ?? []).map((costItem, rowCostIndex) =>
-                                              rowCostIndex === costIndex ? { ...costItem, label: event.target.value } : costItem,
-                                            ),
-                                          }
-                                        : row,
-                                    ),
-                                  )
-                                }
-                              >
-                                {quoteCostItemOptions.map((option) => (
-                                  <option key={option} value={option}>
-                                    {option}
-                                  </option>
-                                ))}
-                              </select>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={item.amount}
-                                onChange={(event) =>
-                                  setQuoteLines((current) =>
-                                    current.map((row, rowIndex) =>
-                                      rowIndex === index
-                                        ? {
-                                            ...row,
-                                            costItems: (row.costItems ?? []).map((costItem, rowCostIndex) =>
-                                              rowCostIndex === costIndex ? { ...costItem, amount: Number(event.target.value) } : costItem,
-                                            ),
-                                          }
-                                        : row,
-                                    ),
-                                  )
-                                }
-                                placeholder="0.18"
-                              />
-                              <button
-                                type="button"
-                                className="action-link delete"
-                                onClick={() =>
-                                  setQuoteLines((current) =>
-                                    current.map((row, rowIndex) =>
-                                      rowIndex === index
-                                        ? { ...row, costItems: (row.costItems ?? []).filter((_, rowCostIndex) => rowCostIndex !== costIndex) }
-                                        : row,
-                                    ),
-                                  )
-                                }
-                              >
-                                <IconTrash size={16} strokeWidth={2} />
-                                {t("action.delete")}
-                              </button>
-                            </div>
-                          ))}
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </section>
 
               <div className="quote-tier-panel" id="quote-tiers-panel">
                 <div className="editable-block">
                   <div className="editable-head">
+                    <button type="button" className="toggle-btn tier-toggle" onClick={() => { const el = document.getElementById("quote-tiers-body"); if (el) el.style.display = el.style.display === "none" ? "block" : "none"; }}>
+                      {t("form.quoteTierToggle")}
+                    </button>
                     <strong>{t("form.quoteTier")}</strong>
                     <button type="button" className="secondary-button tiny-button" onClick={() => setQuoteTiers((current) => [...current, { id: createLineItemId(), quantity: "", unitPrice: 0 }])}>
                       <IconPlus size={16} strokeWidth={2} />
                       {t("button.addQuoteTier")}
                     </button>
                   </div>
-                  <div className="editable-list">
+                  <div className="editable-list" id="quote-tiers-body">
                     {quoteTiers.map((item, index) => (
                       <div className="editable-row tier-row" key={item.id ?? index}>
                         <input value={item.quantity} onChange={(event) => setQuoteTiers((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, quantity: event.target.value } : row)))} placeholder="1M" />
@@ -2911,17 +3185,6 @@ function App() {
                   <label>
                     <span>{t("form.piNo")}</span>
                     <input value={piDraft.piNo} onChange={(event) => setPIDraft({ ...piDraft, piNo: event.target.value })} />
-                  </label>
-                  <label>
-                    <span>{t("form.piVendor")}</span>
-                    <select value={piDraft.vendor} onChange={(event) => setPIDraft({ ...piDraft, vendor: event.target.value })}>
-                      <option value="">-</option>
-                      {suppliers.map((item) => (
-                        <option key={item.id} value={item.name}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
                   </label>
                   <label>
                     <span>{t("form.piCustomer")}</span>
@@ -3249,6 +3512,89 @@ function App() {
             </form>
           </EditorModal>
         ) : null}
+
+        {activeModal === "po" ? (
+          <EditorModal title={editingPoId ? t("form.editPO") : t("form.createPO")} onClose={closeModal}>
+            <form className="modal-form" onSubmit={submitPODraft}>
+              <div className="form-grid">
+                <label>
+                  <span>{t("table.poNo")}</span>
+                  <input value={poDraft.poNo} onChange={(event) => setPODraft({ ...poDraft, poNo: event.target.value })} placeholder="PO2603428" />
+                </label>
+                <label>
+                  <span>{t("table.customer")}</span>
+                  <input value={poDraft.customer} onChange={(event) => setPODraft({ ...poDraft, customer: event.target.value })} placeholder={t("form.customerPlaceholder")} />
+                </label>
+                <label>
+                  <span>{t("table.poVendor")}</span>
+                  <input value={poDraft.vendor} onChange={(event) => setPODraft({ ...poDraft, vendor: event.target.value })} placeholder={t("form.vendorPlaceholder")} />
+                </label>
+                <label>
+                  <span>{t("table.poDate")}</span>
+                  <input type="date" value={poDraft.date} onChange={(event) => setPODraft({ ...poDraft, date: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("table.poRefNo")}</span>
+                  <input value={poDraft.ourRefNo} onChange={(event) => setPODraft({ ...poDraft, ourRefNo: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("form.piDeliverTo")}</span>
+                  <input value={poDraft.deliverTo} onChange={(event) => setPODraft({ ...poDraft, deliverTo: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("form.piDeliveryDate")}</span>
+                  <input type="date" value={poDraft.deliveryDate} onChange={(event) => setPODraft({ ...poDraft, deliveryDate: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("table.status")}</span>
+                  <select value={poDraft.status} onChange={(event) => setPODraft({ ...poDraft, status: event.target.value as PORecord["status"] })}>
+                    <option value="Draft">{t("status.Draft")}</option>
+                    <option value="Confirmed">{t("status.Confirmed")}</option>
+                    <option value="Sent">{t("status.Sent")}</option>
+                    <option value="Closed">{t("status.Closed")}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>{t("po.itemCode")}</span>
+                  <input value={poDraft.itemCode} onChange={(event) => setPODraft({ ...poDraft, itemCode: event.target.value })} />
+                </label>
+                <label className="full-span">
+                  <span>{t("po.description")}</span>
+                  <input value={poDraft.description} onChange={(event) => setPODraft({ ...poDraft, description: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("po.productType")}</span>
+                  <input value={poDraft.productType} onChange={(event) => setPODraft({ ...poDraft, productType: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("po.size")}</span>
+                  <input value={poDraft.size} onChange={(event) => setPODraft({ ...poDraft, size: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("po.colors")}</span>
+                  <input value={poDraft.colors} onChange={(event) => setPODraft({ ...poDraft, colors: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("po.finished")}</span>
+                  <input value={poDraft.finished} onChange={(event) => setPODraft({ ...poDraft, finished: event.target.value })} />
+                </label>
+                <label className="full-span">
+                  <span>{t("po.remarks")}</span>
+                  <textarea rows={3} value={poDraft.remarks} onChange={(event) => setPODraft({ ...poDraft, remarks: event.target.value })} />
+                </label>
+              </div>
+
+              <div className="form-actions">
+                <button className="secondary-button" type="button" onClick={closeModal}>
+                  {t("button.cancel")}
+                </button>
+                <button className="primary-button" type="submit">
+                  {editingPoId ? t("button.save") : t("button.create")}
+                </button>
+              </div>
+            </form>
+          </EditorModal>
+        ) : null}
       </main>
     </div>
   );
@@ -3281,6 +3627,7 @@ function DashboardPage({
   brands,
   orders,
   contracts,
+  quotes,
   onEditProduct,
   onDeleteProduct,
   onEditBrand,
@@ -3292,11 +3639,37 @@ function DashboardPage({
   brands: Brand[];
   orders: typeof fallbackOrders;
   contracts: typeof fallbackContracts;
+  quotes: Quote[];
   onEditProduct: (product: Product) => void;
   onDeleteProduct: (product: Product) => void;
   onEditBrand: (brand: Brand) => void;
   onDeleteBrand: (brand: Brand) => void;
 }) {
+  const recentQuotes = useMemo(() => {
+    return [...quotes]
+      .sort((a, b) => (b.modificationDate || b.date).localeCompare(a.modificationDate || a.date))
+      .slice(0, 10);
+  }, [quotes]);
+
+  const duplicateGroups = useMemo(() => {
+    const groups = new Map<string, Quote[]>();
+    const now = new Date();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    for (const q of recentQuotes) {
+      const key = `${q.brand}::${q.customer}`;
+      const qDate = new Date(q.modificationDate || q.date);
+      if (now.getTime() - qDate.getTime() < oneDayMs) {
+        const existing = groups.get(key) || [];
+        existing.push(q);
+        groups.set(key, existing);
+      }
+    }
+    const dups = new Map<string, Quote[]>();
+    for (const [key, qs] of groups) {
+      if (qs.length > 1) dups.set(key, qs);
+    }
+    return dups;
+  }, [recentQuotes]);
   return (
     <div className="page-stack">
       <SectionShell
@@ -3320,6 +3693,41 @@ function DashboardPage({
             <TableActions key={item.id} t={t} onEdit={() => onEditProduct(item)} onDelete={() => onDeleteProduct(item)} />,
           ])}
         />
+      </SectionShell>
+
+      <SectionShell
+        title={t("dashboard.recentQuotes")}
+        action={
+          <Link className="secondary-button" to="/quotes">
+            <IconFileInvoice size={18} strokeWidth={2} />
+            {t("section.quotes")}
+          </Link>
+        }
+      >
+        <p className="section-desc">{t("dashboard.recentQuotesDesc")}</p>
+        <div className="dashboard-quote-list">
+          {recentQuotes.length === 0 ? (
+            <p className="empty-hint">{t("table.empty")}</p>
+          ) : (
+            recentQuotes.map((item) => {
+              const dupKey = `${item.brand}::${item.customer}`;
+              const isDuplicate = duplicateGroups.has(dupKey);
+              return (
+                <div className={`dashboard-quote-row${isDuplicate ? " duplicate-warn" : ""}`} key={item.id}>
+                  <div className="dashboard-quote-main">
+                    <strong>{item.quoteNo || item.id}</strong>
+                    <span>{item.brand} &middot; {item.customer}</span>
+                  </div>
+                  <div className="dashboard-quote-meta">
+                    <span>{item.modificationDate || item.date}</span>
+                    <span className={`status-pill status-${item.status.toLowerCase()}`}>{t(`status.${item.status}`)}</span>
+                    {isDuplicate ? <span className="duplicate-badge" title={t("dashboard.duplicateWarning")}>⚠ {t("dashboard.duplicateWarning")}</span> : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
       </SectionShell>
 
       <div className="two-column">
@@ -3364,6 +3772,7 @@ function BrandsPage({
   onStartCreate,
   onEditBrand,
   onDeleteBrand,
+  onCheckBrands,
 }: {
   locale: Locale;
   t: (key: string) => string;
@@ -3371,16 +3780,23 @@ function BrandsPage({
   onStartCreate: () => void;
   onEditBrand: (brand: Brand) => void;
   onDeleteBrand: (brand: Brand) => void;
+  onCheckBrands: (brands: Brand[]) => void;
 }) {
   return (
     <div className="page-stack">
       <SectionShell
         title={t("section.brands")}
         action={
-          <button className="primary-button" type="button" onClick={onStartCreate}>
-            <IconPlus size={18} strokeWidth={2} />
-            {t("button.addBrand")}
-          </button>
+          <div className="section-actions">
+            <button className="secondary-button" type="button" onClick={() => onCheckBrands(brands)}>
+              <IconSearch size={18} strokeWidth={2} />
+              {t("button.checkBrands")}
+            </button>
+            <button className="primary-button" type="button" onClick={onStartCreate}>
+              <IconPlus size={18} strokeWidth={2} />
+              {t("button.addBrand")}
+            </button>
+          </div>
         }
       >
         <Table
@@ -3621,10 +4037,12 @@ function PIsPage({
   locale,
   t,
   pis,
+  pos,
   onStartCreate,
   onEditPI,
   onDeletePI,
   onOpenPurchaseOrder,
+  onPreviewPI,
   onGeneratePdf,
   onGenerateFromOrder,
   onGenerateFromQuote,
@@ -3634,10 +4052,12 @@ function PIsPage({
   locale: Locale;
   t: (key: string) => string;
   pis: PIRecord[];
+  pos: PORecord[];
   onStartCreate: () => void;
   onEditPI: (pi: PIRecord) => void;
   onDeletePI: (pi: PIRecord) => void;
   onOpenPurchaseOrder: (pi: PIRecord) => void;
+  onPreviewPI: (pi: PIRecord) => void;
   onGeneratePdf: (pi: PIRecord) => void;
   onGenerateFromOrder: (order: Order) => void;
   onGenerateFromQuote: (quote: Quote) => void;
@@ -3684,10 +4104,10 @@ function PIsPage({
           </div>
         </div>
         <Table
-          columns={[t("table.piNo"), t("table.piVendor"), t("table.piOurRefNo"), t("table.customer"), t("table.piDeliveryDate"), t("table.status"), t("table.piGenerated"), t("pi.sizeTitle"), t("table.actions")]}
+          columns={[t("table.piNo"), t("table.piVendor"), t("table.piOurRefNo"), t("table.customer"), t("table.piDeliveryDate"), t("table.status"), t("table.piGenerated"), t("table.actions")]}
           rows={pis.map((item) => [
             item.piNo,
-            item.vendor || item.brand,
+            (() => { const linked = pos.find((po) => po.sourcePiId === item.id || po.poNo === item.piNo); return linked?.vendor || item.vendor || item.brand; })(),
             item.ourRefNo || "-",
             item.customer,
             item.deliveryDate || "-",
@@ -3698,25 +4118,28 @@ function PIsPage({
               <strong>{formatDate(item.generatedAt, locale)}</strong>
               <p>{item.generatedBy}</p>
             </div>,
-            item.sizeDetails?.length ? stringifySizeDetails(item.sizeDetails) : stringifyLines(item.lines),
-            <TableActions
-              key={`${item.id}-actions`}
-              t={t}
-              extraActions={
-                <>
-                  <button type="button" className="action-link preview" onClick={() => onOpenPurchaseOrder(item)}>
-                    <IconReceipt2 size={16} strokeWidth={2} />
-                    {t("button.previewPO")}
-                  </button>
-                  <button type="button" className="action-link preview" onClick={() => onGeneratePdf(item)}>
-                    <IconDownload size={16} strokeWidth={2} />
-                    {t("button.generatePdf")}
-                  </button>
-                </>
-              }
-              onEdit={() => onEditPI(item)}
-              onDelete={() => onDeletePI(item)}
-            />,
+              <TableActions
+                key={`${item.id}-actions`}
+                t={t}
+                extraActions={
+                  <>
+                    <button type="button" className="action-link preview" onClick={() => onPreviewPI(item)}>
+                      <IconCopy size={16} strokeWidth={2} />
+                      {t("action.preview")}
+                    </button>
+                    <button type="button" className="action-link generate" onClick={() => onOpenPurchaseOrder(item)}>
+                      <IconReceipt2 size={16} strokeWidth={2} />
+                      {t("button.generatePO")}
+                    </button>
+                    <button type="button" className="action-link preview" onClick={() => onGeneratePdf(item)}>
+                      <IconDownload size={16} strokeWidth={2} />
+                      {t("button.generatePdf")}
+                    </button>
+                  </>
+                }
+                onEdit={() => onEditPI(item)}
+                onDelete={() => onDeletePI(item)}
+              />,
           ])}
         />
       </SectionShell>
@@ -3743,11 +4166,14 @@ function ProformaInvoicePage({
   onSelectPi: (piId: string) => void;
   onExportPdf: () => void;
 }) {
+  const location = useLocation();
+  const autoPrint = location.pathname === "/pis/print";
+
   useEffect(() => {
-    if (!selectedPi) return;
+    if (!selectedPi || !autoPrint) return;
     const timer = window.setTimeout(() => window.print(), 250);
     return () => window.clearTimeout(timer);
-  }, [selectedPi?.id]);
+  }, [autoPrint, selectedPi?.id]);
 
   const invoiceLines =
     selectedPi?.lines?.length && selectedPi.lines.some((line) => line.productCode || line.productName)
@@ -3924,54 +4350,30 @@ function PurchaseOrderPage({
   locale,
   t,
   pos,
-  selectedPo,
-  onSelectPo,
-  onExportPdf,
+  onStartCreate,
+  onEditPO,
+  onDeletePO,
+  onPreviewPO,
 }: {
   locale: Locale;
   t: (key: string) => string;
   pos: PORecord[];
-  selectedPo: PORecord | null;
-  onSelectPo: (poId: string) => void;
-  onExportPdf: () => void;
+  onStartCreate: () => void;
+  onEditPO: (po: PORecord) => void;
+  onDeletePO: (po: PORecord) => void;
+  onPreviewPO: (po: PORecord) => void;
 }) {
-  const vendor = getPurchaseOrderVendor(selectedPo);
-  const sourceLine = selectedPo?.lines?.[0] ?? null;
-  const lineQuantity = sourceLine?.quantity ?? 0;
-  const lineUnitPrice = sourceLine?.unitPrice ?? 0;
-  const lineAmount = lineQuantity * lineUnitPrice;
-  const totalAmount = selectedPo?.lines.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) ?? 0;
-  const packingQty = selectedPo?.packingRows?.reduce((sum, detail) => sum + Number(detail.quantity || 0), 0) || Math.round(lineQuantity * 1000) || 0;
-
   return (
-    <div className="page-stack po-page">
+    <div className="page-stack">
       <SectionShell
         title={t("po.listTitle")}
         action={
-          <div className="section-actions no-print">
-            <button className="primary-button" type="button" onClick={onExportPdf} disabled={!selectedPo}>
-              <IconDownload size={18} strokeWidth={2} />
-              {t("button.exportPdf")}
-            </button>
-          </div>
+          <button className="primary-button" type="button" onClick={onStartCreate}>
+            <IconPlus size={18} strokeWidth={2} />
+            {t("button.addPO")}
+          </button>
         }
       >
-        <div className="po-toolbar">
-          <div className="po-toolbar-copy">
-            <p>{t("po.listSubtitle")}</p>
-          </div>
-          <label className="po-select no-print">
-            <span>{t("po.selectSource")}</span>
-            <select value={selectedPo?.id ?? ""} onChange={(event) => onSelectPo(event.target.value)}>
-              {pos.map((po) => (
-                <option key={po.id} value={po.id}>
-                  {po.poNo} · {po.customer}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
         <Table
           columns={[t("table.poNo"), t("table.poVendor"), t("table.poRefNo"), t("table.customer"), t("table.poDate"), t("table.piDeliveryDate"), t("table.status"), t("table.actions")]}
           rows={pos.map((item) => [
@@ -3984,14 +4386,76 @@ function PurchaseOrderPage({
             <span className={`status-pill status-${item.status.toLowerCase()}`} key={`${item.id}-status`}>
               {t(`status.${item.status}`)}
             </span>,
-            <div className="action-links" key={`${item.id}-actions`}>
-              <button type="button" className="action-link preview" onClick={() => onSelectPo(item.id)}>
-                <IconCopy size={16} strokeWidth={2} />
-                {t("button.previewPO")}
-              </button>
-            </div>,
+            <TableActions
+              key={`${item.id}-actions`}
+              t={t}
+              extraActions={
+                <button type="button" className="action-link preview" onClick={() => onPreviewPO(item)}>
+                  <IconCopy size={16} strokeWidth={2} />
+                  {t("button.previewPO")}
+                </button>
+              }
+              onEdit={() => onEditPO(item)}
+              onDelete={() => onDeletePO(item)}
+            />,
           ])}
         />
+      </SectionShell>
+    </div>
+  );
+}
+
+function PoDetailPage({
+  locale,
+  t,
+  pos,
+}: {
+  locale: Locale;
+  t: (key: string) => string;
+  pos: PORecord[];
+}) {
+  const { poId } = useParams<{ poId: string }>();
+  const navigate = useNavigate();
+  const po = useMemo(() => pos.find((item) => item.id === poId || item.poNo === poId) ?? null, [pos, poId]);
+  const vendor = getPurchaseOrderVendor(po);
+  const sourceLine = po?.lines?.[0] ?? null;
+  const lineQuantity = sourceLine?.quantity ?? 0;
+  const lineUnitPrice = sourceLine?.unitPrice ?? 0;
+  const lineAmount = lineQuantity * lineUnitPrice;
+  const totalAmount = po?.lines.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) ?? 0;
+  const packingQty = po?.packingRows?.reduce((sum, detail) => sum + Number(detail.quantity || 0), 0) || Math.round(lineQuantity * 1000) || 0;
+
+  if (!po) {
+    return (
+      <div className="page-stack">
+        <SectionShell title={t("po.detailTitle")}>
+          <p>{t("po.notFound")}</p>
+          <button className="secondary-button" type="button" onClick={() => navigate("/po")}>
+            {t("button.back")}
+          </button>
+        </SectionShell>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-stack po-page">
+      <SectionShell
+        title={t("po.detailTitle")}
+        action={
+          <div className="section-actions no-print">
+            <button className="secondary-button" type="button" onClick={() => navigate("/po")}>
+              <IconChevronLeft size={18} strokeWidth={2} />
+              {t("button.back")}
+            </button>
+            <button className="primary-button" type="button" onClick={() => window.print()}>
+              <IconDownload size={18} strokeWidth={2} />
+              {t("button.exportPdf")}
+            </button>
+          </div>
+        }
+      >
+        <p className="no-print">{t("po.previewSubtitle")}</p>
       </SectionShell>
 
       <article className="po-sheet">
@@ -3999,10 +4463,10 @@ function PurchaseOrderPage({
         <header className="po-header">
           <h1>
             <span>PURCHASE ORDER NO. / 訂單號碼：</span>
-            <strong>{selectedPo?.poNo || "-"}</strong>
+            <strong>{po.poNo || "-"}</strong>
           </h1>
           <div className="po-date">
-            {t("po.date")}: <strong>{selectedPo?.date || "-"}</strong>
+            {t("po.date")}: <strong>{po.date || "-"}</strong>
           </div>
         </header>
 
@@ -4022,15 +4486,15 @@ function PurchaseOrderPage({
             <div className="po-vendor-meta">
               <div>
                 <span>{t("table.poRefNo")}</span>
-                <strong>{selectedPo?.ourRefNo || "-"}</strong>
+                <strong>{po.ourRefNo || "-"}</strong>
               </div>
               <div>
                 <span>{t("table.poDate")}</span>
-                <strong>{selectedPo?.deliveryDate || "-"}</strong>
+                <strong>{po.deliveryDate || "-"}</strong>
               </div>
               <div className="po-deliver-to">
                 <span>{t("form.piDeliverTo")}</span>
-                <strong>{selectedPo?.deliverTo || "-"}</strong>
+                <strong>{po.deliverTo || "-"}</strong>
               </div>
             </div>
           </div>
@@ -4045,10 +4509,10 @@ function PurchaseOrderPage({
           </div>
           <div className="po-item-row">
             <div className="po-item-desc">
-              <strong>{selectedPo?.itemCode || sourceLine?.itemCode || "-"}</strong>
-              <p>{selectedPo?.description || sourceLine?.itemDescription || "-"}</p>
-              <p>{selectedPo?.productType || sourceLine?.itemDescription || "-"}</p>
-              <p>{selectedPo?.size ? `- ${selectedPo.size}` : ""}</p>
+              <strong>{po.itemCode || sourceLine?.itemCode || "-"}</strong>
+              <p>{po.description || sourceLine?.itemDescription || "-"}</p>
+              <p>{po.productType || sourceLine?.itemDescription || "-"}</p>
+              <p>{po.size ? `- ${po.size}` : ""}</p>
             </div>
             <div className="po-item-qty">{formatPoQuantity(lineQuantity)}</div>
             <div className="po-item-cost">{formatPoMoney(lineUnitPrice)}</div>
@@ -4065,38 +4529,38 @@ function PurchaseOrderPage({
           <dl className="po-spec-list">
             <div>
               <dt>{t("po.itemCode")}</dt>
-              <dd>{selectedPo?.itemCode || "-"}</dd>
+              <dd>{po.itemCode || "-"}</dd>
             </div>
             <div>
               <dt>{t("po.description")}</dt>
-              <dd>{selectedPo?.description || "-"}</dd>
+              <dd>{po.description || "-"}</dd>
             </div>
             <div>
               <dt>{t("po.productType")}</dt>
-              <dd>{selectedPo?.productType || "-"}</dd>
+              <dd>{po.productType || "-"}</dd>
             </div>
             <div>
               <dt>{t("po.size")}</dt>
-              <dd>{selectedPo?.size || "-"}</dd>
+              <dd>{po.size || "-"}</dd>
             </div>
             <div>
               <dt>{t("po.colors")}</dt>
-              <dd>{selectedPo?.colors || "-"}</dd>
+              <dd>{po.colors || "-"}</dd>
             </div>
             <div>
               <dt>{t("po.finished")}</dt>
-              <dd>{selectedPo?.finished || "-"}</dd>
+              <dd>{po.finished || "-"}</dd>
             </div>
             <div>
               <dt>{t("po.remarks")}</dt>
-              <dd>{selectedPo?.remarks || "-"}</dd>
+              <dd>{po.remarks || "-"}</dd>
             </div>
           </dl>
         </section>
 
         <section className="po-pack-block">
           <div className="po-pack-title">
-            {`Packing Instruction of ${selectedPo?.itemCode || "-"} (${selectedPo?.ourRefNo || "-"}) / ${t("po.packLabel")}`}
+            {`Packing Instruction of ${po.itemCode || "-"} (${po.ourRefNo || "-"}) / ${t("po.packLabel")}`}
           </div>
           <div className="po-pack-table">
             <div className="po-pack-row po-pack-head">
@@ -4104,8 +4568,8 @@ function PurchaseOrderPage({
               <span>{t("po.size")}</span>
               <span>{t("po.qtyPcs")}</span>
             </div>
-            {(selectedPo?.packingRows?.length ? selectedPo.packingRows : [{ lot: "1", size: "", quantity: packingQty }]).map((row, index) => (
-              <div className="po-pack-row" key={`${selectedPo?.id ?? "po"}-${index}`}>
+            {(po.packingRows?.length ? po.packingRows : [{ lot: "1", size: "", quantity: packingQty }]).map((row, index) => (
+              <div className="po-pack-row" key={`${po.id}-${index}`}>
                 <span>{row.lot || String(index + 1)}</span>
                 <span>{row.size || " "}</span>
                 <span>{row.quantity || "-"}</span>
@@ -4142,6 +4606,16 @@ function CommercialInvoicePage({
   const invoiceDate = selectedPo?.date || "-";
   const shipTo = selectedPo?.deliverTo || selectedPo?.customer || "-";
   const sourceLine = invoiceLines[0] ?? null;
+  const packingQuantity =
+    selectedPo?.packingRows?.reduce((sum, detail) => sum + Number(detail.quantity || 0), 0) ||
+    Math.round(invoiceLines.reduce((sum, item) => sum + Number(item.quantity || 0), 0) * 1000) ||
+    0;
+  const packingRows =
+    selectedPo?.packingRows?.length
+      ? selectedPo.packingRows
+      : selectedPo
+        ? [{ lot: "1", size: selectedPo.size || sourceLine?.itemDescription || "-", quantity: packingQuantity }]
+        : [];
   const formatCiQuantity = (value: number) => (Number.isInteger(value) ? String(value) : value.toFixed(3));
   const formatCiUnitPrice = (value: number) => value.toFixed(4);
   const formatCiAmount = (value: number) => value.toFixed(2);
@@ -4267,6 +4741,26 @@ function CommercialInvoicePage({
           <div className="ci-total-row">
             <span>{t("ci.total")}</span>
             <strong>{formatCiAmount(invoiceTotal)}</strong>
+          </div>
+        </section>
+
+        <section className="ci-pack-block">
+          <div className="ci-pack-title">
+            {t("ci.packTitle")}
+          </div>
+          <div className="ci-pack-table">
+            <div className="ci-pack-row ci-pack-head">
+              <span>{t("po.lot")}</span>
+              <span>{t("po.size")}</span>
+              <span>{t("po.qtyPcs")}</span>
+            </div>
+            {packingRows.map((row, index) => (
+              <div className="ci-pack-row" key={`${selectedPo?.id ?? "ci"}-${index}`}>
+                <span>{row.lot || String(index + 1)}</span>
+                <span>{row.size || " "}</span>
+                <span>{row.quantity || "-"}</span>
+              </div>
+            ))}
           </div>
         </section>
 
