@@ -193,6 +193,11 @@ type PIDraft = {
   status: PIRecord["status"];
   generatedAt: string;
   generatedBy: string;
+  purchaseGeneratedAt: string;
+  financeApprovedAt: string;
+  packingInfoGeneratedAt: string;
+  commercialInvoiceGeneratedAt: string;
+  paymentConfirmedAt: string;
   pdfUrl: string;
   itemCode: string;
   description: string;
@@ -418,6 +423,11 @@ const emptyPIDraft: PIDraft = {
   status: "Draft",
   generatedAt: new Date().toISOString(),
   generatedBy: "Jason",
+  purchaseGeneratedAt: "",
+  financeApprovedAt: "",
+  packingInfoGeneratedAt: "",
+  commercialInvoiceGeneratedAt: "",
+  paymentConfirmedAt: "",
   pdfUrl: "",
   itemCode: "",
   description: "",
@@ -781,6 +791,47 @@ function formatPiMoney(value: number) {
   return `US$ ${value.toFixed(2)}`;
 }
 
+function formatTimestamp(value: string, locale: Locale) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function toDateTimeLocalValue(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+type PITimelineStage = {
+  key: string;
+  labelKey: string;
+  time: string;
+};
+
+function getPITimeline(pi?: PIRecord | null): PITimelineStage[] {
+  if (!pi) return [];
+
+  return [
+    { key: "opened", labelKey: "pi.timeline.opened", time: pi.generatedAt },
+    { key: "purchase", labelKey: "pi.timeline.purchase", time: pi.purchaseGeneratedAt },
+    { key: "finance", labelKey: "pi.timeline.finance", time: pi.financeApprovedAt },
+    { key: "packing", labelKey: "pi.timeline.packing", time: pi.packingInfoGeneratedAt },
+    { key: "commercial", labelKey: "pi.timeline.commercial", time: pi.commercialInvoiceGeneratedAt },
+    { key: "payment", labelKey: "pi.timeline.payment", time: pi.paymentConfirmedAt },
+  ];
+}
+
 type PartyDetails = {
   name: string;
   address: string;
@@ -832,6 +883,48 @@ function getPartyDetails<T extends { name: string; address: string; contact: str
     phone: party?.phone || "",
     email: party?.email || "",
   };
+}
+
+function PITimelinePanel({
+  locale,
+  t,
+  pi,
+  className,
+}: {
+  locale: Locale;
+  t: (key: string) => string;
+  pi?: PIRecord | null;
+  className?: string;
+}) {
+  const timeline = getPITimeline(pi);
+
+  return (
+    <section className={className ? `pi-timeline-panel ${className}` : "pi-timeline-panel"}>
+      <div className="editable-head">
+        <div>
+          <strong>{t("pi.timelineTitle")}</strong>
+          <p>{t("pi.timelineSubtitle")}</p>
+        </div>
+        <span className={`status-pill status-${(pi?.status ?? "Draft").toLowerCase()}`}>{pi ? t(`status.${pi.status}`) : t("status.Draft")}</span>
+      </div>
+      <div className="pi-timeline-list">
+        {timeline.map((stage, index) => {
+          const hasTime = Boolean(stage.time);
+          return (
+            <div className={hasTime ? "pi-timeline-item active" : "pi-timeline-item"} key={stage.key}>
+              <div className="pi-timeline-marker">
+                <span>{index + 1}</span>
+              </div>
+              <div className="pi-timeline-content">
+                <strong>{t(stage.labelKey)}</strong>
+                <p>{hasTime ? formatTimestamp(stage.time, locale) : t("pi.timelinePending")}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function App() {
@@ -1277,6 +1370,11 @@ function App() {
       status: pi.status,
       generatedAt: pi.generatedAt,
       generatedBy: pi.generatedBy,
+      purchaseGeneratedAt: pi.purchaseGeneratedAt,
+      financeApprovedAt: pi.financeApprovedAt,
+      packingInfoGeneratedAt: pi.packingInfoGeneratedAt,
+      commercialInvoiceGeneratedAt: pi.commercialInvoiceGeneratedAt,
+      paymentConfirmedAt: pi.paymentConfirmedAt,
       pdfUrl: pi.pdfUrl,
       itemCode: pi.itemCode,
       description: pi.description,
@@ -1733,6 +1831,11 @@ function App() {
       status: piDraft.status,
       generatedAt: piDraft.generatedAt || new Date().toISOString(),
       generatedBy: piDraft.generatedBy.trim() || "Jason",
+      purchaseGeneratedAt: piDraft.purchaseGeneratedAt.trim(),
+      financeApprovedAt: piDraft.financeApprovedAt.trim(),
+      packingInfoGeneratedAt: piDraft.packingInfoGeneratedAt.trim(),
+      commercialInvoiceGeneratedAt: piDraft.commercialInvoiceGeneratedAt.trim(),
+      paymentConfirmedAt: piDraft.paymentConfirmedAt.trim(),
       pdfUrl: piDraft.pdfUrl.trim(),
       itemCode: piDraft.itemCode.trim(),
       description: piDraft.description.trim(),
@@ -1818,6 +1921,11 @@ function App() {
       status: "Generated",
       generatedAt: new Date().toISOString(),
       generatedBy: "Jason",
+      purchaseGeneratedAt: "",
+      financeApprovedAt: "",
+      packingInfoGeneratedAt: "",
+      commercialInvoiceGeneratedAt: "",
+      paymentConfirmedAt: "",
       pdfUrl: "",
       itemCode: quote.productCode || firstLine?.productCode || "",
       description: quote.item || quote.productName || firstLine?.productName || "",
@@ -1861,6 +1969,11 @@ function App() {
       status: "Generated",
       generatedAt: new Date().toISOString(),
       generatedBy: "Jason",
+      purchaseGeneratedAt: "",
+      financeApprovedAt: "",
+      packingInfoGeneratedAt: "",
+      commercialInvoiceGeneratedAt: "",
+      paymentConfirmedAt: "",
       pdfUrl: "",
       itemCode: order.id,
       description: order.product,
@@ -2111,7 +2224,10 @@ function App() {
   const selectedPiId = new URLSearchParams(location.search).get("pi") ?? pis[0]?.id ?? "";
   const selectedPi = useMemo(() => pis.find((item) => item.id === selectedPiId || item.piNo === selectedPiId) ?? pis[0] ?? null, [pis, selectedPiId]);
   const selectedPiCustomer = getPartyDetails(customers.find((item) => item.name === selectedPi?.customer) ?? null);
-  const getLinkedPOForPI = (pi: PIRecord) => pos.find((po) => po.sourcePiId === pi.id || po.poNo === pi.piNo) ?? null;
+  const getLinkedPOForPI = (pi: PIRecord) =>
+    [...pos]
+      .filter((po) => po.sourcePiId === pi.id || po.poNo === pi.piNo)
+      .sort((a, b) => `${b.date}${b.id}`.localeCompare(`${a.date}${a.id}`))[0] ?? null;
   const selectedPiVendor = (() => {
     const linkedPO = selectedPi ? getLinkedPOForPI(selectedPi) : null;
     const vendorName = linkedPO?.vendor || selectedPi?.vendor || "";
@@ -3391,6 +3507,65 @@ function App() {
                 </label>
               </div>
 
+              <section className="pi-timeline-editor">
+                <div className="editable-head">
+                  <div>
+                    <strong>{t("pi.timelineTitle")}</strong>
+                    <p>{t("pi.timelineSubtitle")}</p>
+                  </div>
+                </div>
+                <div className="pi-timeline-grid">
+                  <label>
+                    <span>{t("pi.timeline.opened")}</span>
+                    <input
+                      type="datetime-local"
+                      value={toDateTimeLocalValue(piDraft.generatedAt)}
+                      onChange={(event) => setPIDraft({ ...piDraft, generatedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("pi.timeline.purchase")}</span>
+                    <input
+                      type="datetime-local"
+                      value={toDateTimeLocalValue(piDraft.purchaseGeneratedAt)}
+                      onChange={(event) => setPIDraft({ ...piDraft, purchaseGeneratedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("pi.timeline.finance")}</span>
+                    <input
+                      type="datetime-local"
+                      value={toDateTimeLocalValue(piDraft.financeApprovedAt)}
+                      onChange={(event) => setPIDraft({ ...piDraft, financeApprovedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("pi.timeline.packing")}</span>
+                    <input
+                      type="datetime-local"
+                      value={toDateTimeLocalValue(piDraft.packingInfoGeneratedAt)}
+                      onChange={(event) => setPIDraft({ ...piDraft, packingInfoGeneratedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("pi.timeline.commercial")}</span>
+                    <input
+                      type="datetime-local"
+                      value={toDateTimeLocalValue(piDraft.commercialInvoiceGeneratedAt)}
+                      onChange={(event) => setPIDraft({ ...piDraft, commercialInvoiceGeneratedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
+                    />
+                  </label>
+                  <label>
+                    <span>{t("pi.timeline.payment")}</span>
+                    <input
+                      type="datetime-local"
+                      value={toDateTimeLocalValue(piDraft.paymentConfirmedAt)}
+                      onChange={(event) => setPIDraft({ ...piDraft, paymentConfirmedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
+                    />
+                  </label>
+                </div>
+              </section>
+
               <div className="form-actions">
                 <button className="secondary-button" type="button" onClick={closeModal}>
                   {t("button.cancel")}
@@ -4372,6 +4547,8 @@ function ProformaInvoicePage({
             </div>
           </div>
         </section>
+
+        <PITimelinePanel locale={locale} t={t} pi={selectedPi} className="no-print" />
       </article>
     </div>
   );

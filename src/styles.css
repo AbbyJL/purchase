@@ -2351,6 +2351,91 @@ a {
   box-shadow: 0 10px 24px rgba(76, 88, 99, 0.05);
 }
 
+.pi-timeline-editor,
+.pi-timeline-panel {
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(122, 136, 148, 0.16);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(245, 248, 251, 0.96));
+  box-shadow: 0 10px 24px rgba(76, 88, 99, 0.05);
+}
+
+.pi-timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pi-timeline-grid label {
+  display: grid;
+  gap: 8px;
+}
+
+.pi-timeline-grid span {
+  font-size: 0.84rem;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.pi-timeline-grid input {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
+}
+
+.pi-timeline-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pi-timeline-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.pi-timeline-marker {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(122, 136, 148, 0.22);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.pi-timeline-item.active .pi-timeline-marker {
+  color: #2d3a44;
+  border-color: rgba(81, 97, 109, 0.25);
+  background: rgba(70, 85, 99, 0.08);
+}
+
+.pi-timeline-content {
+  display: grid;
+  gap: 4px;
+  padding: 3px 0 10px;
+  border-bottom: 1px dashed rgba(122, 136, 148, 0.16);
+}
+
+.pi-timeline-content strong {
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.pi-timeline-content p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .pi-meta-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
