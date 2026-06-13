@@ -1938,6 +1938,46 @@ a {
   padding: 12px;
 }
 
+.quote-spec-panel {
+  margin: 12px 0 14px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(122, 136, 148, 0.14);
+  background: linear-gradient(180deg, rgba(247, 249, 252, 0.98), rgba(255, 255, 255, 0.98));
+}
+
+.quote-spec-panel .editable-head {
+  margin-bottom: 12px;
+}
+
+.quote-spec-config {
+  display: grid;
+  gap: 10px;
+}
+
+.quote-spec-config-row {
+  display: grid;
+  grid-template-columns: 92px minmax(160px, 0.8fr) minmax(200px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.quote-spec-config-row span {
+  font-size: 0.84rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.quote-spec-config-row input,
+.quote-spec-config-row select {
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid rgba(96, 110, 122, 0.22);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
+}
+
 .quote-lines-table {
   display: grid;
   gap: 8px;
@@ -1961,22 +2001,23 @@ a {
 
 .quote-line-row {
   align-items: stretch;
-  padding: 10px 8px;
-  border-radius: 0;
-  border: 1px solid rgba(96, 110, 122, 0.28);
-  background: #fff;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .quote-line-group {
   display: grid;
-  gap: 10px;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(96, 110, 122, 0.24);
+  border-radius: 12px;
+  background: #fff;
 }
 
 .quote-line-cost-panel {
-  padding: 12px;
-  border: 1px solid rgba(122, 136, 148, 0.14);
-  border-radius: 12px;
-  background: rgba(248, 250, 252, 0.9);
+  padding-top: 12px;
+  border-top: 1px solid rgba(122, 136, 148, 0.16);
 }
 
 .quote-line-row input,
@@ -2044,6 +2085,41 @@ a {
   display: grid;
   gap: 10px;
   align-content: start;
+}
+
+.quote-line-specs {
+  display: grid;
+  gap: 8px;
+}
+
+.quote-line-specs label {
+  display: grid;
+  gap: 6px;
+}
+
+.quote-line-specs span,
+.quote-line-remarks span {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.quote-line-specs select,
+.quote-line-remarks textarea {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(96, 110, 122, 0.22);
+  background: rgba(252, 252, 252, 0.98);
+  color: var(--text);
+}
+
+.quote-line-remarks textarea {
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 94px;
+  line-height: 1.5;
 }
 
 .quote-tier-panel {

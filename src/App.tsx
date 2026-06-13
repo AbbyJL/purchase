@@ -161,6 +161,18 @@ type QuoteDraft = {
 
 type QuoteLineDraft = QuoteLine;
 
+type QuoteSpecField = "type" | "size" | "color" | "finished";
+
+type QuoteSpecDraft = {
+  typeValue: string;
+  sizeValue: string;
+  colorValue: string;
+  finishedValue: string;
+  remarksValue: string;
+};
+
+type QuoteSpecOptions = Record<QuoteSpecField, string[]>;
+
 type PISizeDraft = {
   id?: string;
   size: string;
@@ -266,7 +278,6 @@ const emptyQuoteDraft: QuoteDraft = {
 const quoteSheetTemplate: {
   draft: QuoteDraft;
   lines: QuoteLineDraft[];
-  costItems: QuoteCostItem[];
   tiers: QuoteTier[];
 } = {
   draft: {
@@ -333,10 +344,39 @@ const emptyQuoteLineDraft: QuoteLineDraft = {
   price: 0,
   sample: 0,
   description: "",
+  typeValue: "",
+  sizeValue: "",
+  colorValue: "",
+  finishedValue: "",
+  remarksValue: "",
   pricingNotes: "",
   cost: "",
   costItems: createQuoteCostItems(),
 };
+
+const emptyQuoteSpecDraft: QuoteSpecDraft = {
+  typeValue: "",
+  sizeValue: "",
+  colorValue: "",
+  finishedValue: "",
+  remarksValue: "",
+};
+
+const quoteSpecFieldLabels: Record<QuoteSpecField, string> = {
+  type: "TYPE",
+  size: "SIZE",
+  color: "COLOR",
+  finished: "FINISHED",
+};
+
+const quoteSpecValueKeys: Record<QuoteSpecField, keyof QuoteSpecDraft> = {
+  type: "typeValue",
+  size: "sizeValue",
+  color: "colorValue",
+  finished: "finishedValue",
+};
+
+const quoteSpecStorageKey = "management.quoteSpecOptions";
 
 const emptyPIDraft: PIDraft = {
   piNo: "",
@@ -378,19 +418,197 @@ function createQuoteCostItems(): QuoteCostItem[] {
   ];
 }
 
-function createQuoteLine(overrides: Partial<QuoteLineDraft> = {}): QuoteLineDraft {
+function parseQuoteLineDescription(description: string): QuoteSpecDraft {
+  const parsed: QuoteSpecDraft = {
+    typeValue: "",
+    sizeValue: "",
+    colorValue: "",
+    finishedValue: "",
+    remarksValue: "",
+  };
+  description
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .forEach((line) => {
+      const match = line.match(/^(TYPE|SIZE|COLOR|FINISHED|REMARKS):\s*(.*)$/i);
+      if (!match) return;
+      const key = match[1].toLowerCase();
+      const value = match[2]?.trim() ?? "";
+      if (key === "type") parsed.typeValue = value;
+      if (key === "size") parsed.sizeValue = value;
+      if (key === "color") parsed.colorValue = value;
+      if (key === "finished") parsed.finishedValue = value;
+      if (key === "remarks") parsed.remarksValue = value;
+    });
+  return parsed;
+}
+
+function buildQuoteLineDescription(line: Partial<QuoteSpecDraft>) {
+  return (
+    [
+      ["TYPE", line.typeValue],
+      ["SIZE", line.sizeValue],
+      ["COLOR", line.colorValue],
+      ["FINISHED", line.finishedValue],
+      ["REMARKS", line.remarksValue],
+    ]
+      .map(([label, value]) => `${label}: ${String(value ?? "").trim()}`)
+      .filter((item) => !item.endsWith(": "))
+      .join("\n") || ""
+  );
+}
+
+function createQuoteSpecOptions(lines: QuoteLine[] = []): QuoteSpecOptions {
+  const options: QuoteSpecOptions = {
+    type: [],
+    size: [],
+    color: [],
+    finished: [],
+  };
+
+  for (const line of lines) {
+    const parsed = parseQuoteLineDescription(line.description);
+    const values: Record<QuoteSpecField, string> = {
+      type: line.typeValue ?? parsed.typeValue,
+      size: line.sizeValue ?? parsed.sizeValue,
+      color: line.colorValue ?? parsed.colorValue,
+      finished: line.finishedValue ?? parsed.finishedValue,
+    };
+
+    (Object.keys(values) as QuoteSpecField[]).forEach((field) => {
+      const value = values[field].trim();
+      if (value && !options[field].includes(value)) {
+        options[field].push(value);
+      }
+    });
+  }
+
+  return options;
+}
+
+function mergeQuoteSpecOptions(base: QuoteSpecOptions, next?: Partial<QuoteSpecOptions> | null) {
+  const merged: QuoteSpecOptions = {
+    type: [...base.type],
+    size: [...base.size],
+    color: [...base.color],
+    finished: [...base.finished],
+  };
+
+  if (!next) return merged;
+
+  (Object.keys(merged) as QuoteSpecField[]).forEach((field) => {
+    const additions = next[field] ?? [];
+    additions.forEach((item) => {
+      const value = String(item ?? "").trim();
+      if (value && !merged[field].includes(value)) {
+        merged[field].push(value);
+      }
+    });
+  });
+
+  return merged;
+}
+
+function loadQuoteSpecOptions() {
+  const defaults = createQuoteSpecOptions([
+    ...fallbackQuotes.flatMap((quote) => quote.lines),
+    ...quoteSheetTemplate.lines,
+  ]);
+
+  if (typeof window === "undefined") {
+    return defaults;
+  }
+
+  const stored = window.localStorage.getItem(quoteSpecStorageKey);
+  if (!stored) return defaults;
+
+  try {
+    const parsed = JSON.parse(stored) as Partial<QuoteSpecOptions>;
+    return mergeQuoteSpecOptions(defaults, parsed);
+  } catch {
+    return defaults;
+  }
+}
+
+function normalizeQuoteLineDraft(line: QuoteLine, fallbackCostItems: QuoteCostItem[] = createQuoteCostItems()) {
+  const parsed = parseQuoteLineDescription(line.description);
+  const spec: QuoteSpecDraft = {
+    typeValue: line.typeValue ?? parsed.typeValue,
+    sizeValue: line.sizeValue ?? parsed.sizeValue,
+    colorValue: line.colorValue ?? parsed.colorValue,
+    finishedValue: line.finishedValue ?? parsed.finishedValue,
+    remarksValue: line.remarksValue ?? parsed.remarksValue,
+  };
+  const costItems = (line.costItems?.length ? line.costItems : fallbackCostItems).map((costItem) => ({
+    ...costItem,
+    id: costItem.id ?? createLineItemId(),
+  }));
+
   return {
-    ...emptyQuoteLineDraft,
-    id: createLineItemId(),
-    costItems: createQuoteCostItems(),
+    ...line,
+    id: line.id ?? createLineItemId(),
+    ...spec,
+    costItems,
+    description: buildQuoteLineDescription(spec),
+  };
+}
+
+function createQuoteLine(overrides: Partial<QuoteLineDraft> = {}): QuoteLineDraft {
+  const parsed = parseQuoteLineDescription(overrides.description ?? "");
+  const spec: QuoteSpecDraft = {
+    typeValue: overrides.typeValue ?? parsed.typeValue,
+    sizeValue: overrides.sizeValue ?? parsed.sizeValue,
+    colorValue: overrides.colorValue ?? parsed.colorValue,
+    finishedValue: overrides.finishedValue ?? parsed.finishedValue,
+    remarksValue: overrides.remarksValue ?? parsed.remarksValue,
+  };
+  const baseLine = {
+    checked: true,
+    imageUrl: "",
+    productCode: "",
+    productName: "",
+    price: 0,
+    sample: 0,
+    description: "",
+    pricingNotes: "",
+    cost: "",
     ...overrides,
+    ...spec,
+    id: overrides.id ?? createLineItemId(),
+    costItems: overrides.costItems?.length ? overrides.costItems : createQuoteCostItems(),
+  } as QuoteLineDraft;
+
+  return normalizeQuoteLineDraft(
+    {
+      ...baseLine,
+      description: buildQuoteLineDescription(spec),
+    },
+    baseLine.costItems,
+  );
+}
+
+function updateQuoteLineSpec(line: QuoteLineDraft, field: QuoteSpecField, value: string) {
+  const key = quoteSpecValueKeys[field];
+  const next = {
+    ...line,
+    [key]: value,
+  } as QuoteLineDraft;
+  return {
+    ...next,
+    description: buildQuoteLineDescription(next),
   };
 }
 
 function createQuoteSheetTemplate() {
   return {
     draft: { ...quoteSheetTemplate.draft },
-    lines: quoteSheetTemplate.lines.map((line) => ({ ...line, id: createLineItemId() })),
+    lines: quoteSheetTemplate.lines.map((line) =>
+      createQuoteLine({
+        ...line,
+        id: createLineItemId(),
+        costItems: line.costItems.map((costItem) => ({ ...costItem, id: createLineItemId() })),
+      }),
+    ),
     tiers: quoteSheetTemplate.tiers.map((item) => ({ ...item, id: createLineItemId() })),
   };
 }
@@ -589,6 +807,13 @@ function App() {
   const [quoteTiers, setQuoteTiers] = useState<QuoteTier[]>([]);
   const [quotePreviewQty, setQuotePreviewQty] = useState("1M");
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [quoteSpecOptions, setQuoteSpecOptions] = useState<QuoteSpecOptions>(() => loadQuoteSpecOptions());
+  const [quoteSpecNewValues, setQuoteSpecNewValues] = useState<Record<QuoteSpecField, string>>({
+    type: "",
+    size: "",
+    color: "",
+    finished: "",
+  });
   const [piDraft, setPIDraft] = useState<PIDraft>(emptyPIDraft);
   const [piLines, setPILines] = useState<PILineItem[]>([]);
   const [piSizeDetails, setPISizeDetails] = useState<PISizeDraft[]>([]);
@@ -616,6 +841,52 @@ function App() {
     if (location.pathname.startsWith("/settings")) return "settings";
     return "dashboard";
   }, [location.pathname]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(quoteSpecStorageKey, JSON.stringify(quoteSpecOptions));
+    } catch {
+      // Ignore storage failures and keep the editor usable.
+    }
+  }, [quoteSpecOptions]);
+
+  function setQuoteLineSpecValue(rowIndex: number, field: QuoteSpecField, value: string) {
+    setQuoteLines((current) => current.map((row, index) => (index === rowIndex ? updateQuoteLineSpec(row, field, value) : row)));
+  }
+
+  function setQuoteLineRemarks(rowIndex: number, value: string) {
+    setQuoteLines((current) =>
+      current.map((row, index) =>
+        index === rowIndex
+          ? {
+              ...row,
+              remarksValue: value,
+              description: buildQuoteLineDescription({
+                typeValue: row.typeValue ?? "",
+                sizeValue: row.sizeValue ?? "",
+                colorValue: row.colorValue ?? "",
+                finishedValue: row.finishedValue ?? "",
+                remarksValue: value,
+              }),
+            }
+          : row,
+      ),
+    );
+  }
+
+  function addQuoteSpecOption(field: QuoteSpecField) {
+    const nextValue = quoteSpecNewValues[field].trim();
+    if (!nextValue) return;
+
+    setQuoteSpecOptions((current) => {
+      if (current[field].includes(nextValue)) return current;
+      return {
+        ...current,
+        [field]: [...current[field], nextValue],
+      };
+    });
+    setQuoteSpecNewValues((current) => ({ ...current, [field]: "" }));
+  }
 
   function updateQuoteLineWithProduct(rowIndex: number, productId: string) {
     const product = products.find((item) => item.id === productId);
@@ -881,9 +1152,10 @@ function App() {
     setEditingQuoteId(null);
     const template = createQuoteSheetTemplate();
     setQuoteDraft(template.draft);
-    setQuoteLines(template.lines);
+    setQuoteLines(template.lines.map((line) => normalizeQuoteLineDraft(line)));
     setQuoteTiers(template.tiers);
     setQuotePreviewQty("1M");
+    setQuoteSpecOptions((current) => mergeQuoteSpecOptions(current, createQuoteSpecOptions(template.lines)));
     setNotice(null);
     setActiveModal("quote");
   }
@@ -909,17 +1181,11 @@ function App() {
       notes: quote.notes,
     });
     setQuoteLines(
-      quote.lines.map((item) => ({
-        ...item,
-        id: item.id ?? createLineItemId(),
-        costItems: (item.costItems?.length ? item.costItems : quote.costItems).map((costItem) => ({
-          ...costItem,
-          id: costItem.id ?? createLineItemId(),
-        })),
-      })),
+      quote.lines.map((item) => normalizeQuoteLineDraft(item, quote.costItems)),
     );
     setQuoteTiers(quote.tiers.map((item) => ({ ...item, id: item.id ?? createLineItemId() })));
     setQuotePreviewQty(quote.tiers[0]?.quantity ?? "1M");
+    setQuoteSpecOptions((current) => mergeQuoteSpecOptions(current, createQuoteSpecOptions(quote.lines)));
     setNotice(null);
     setActiveModal("quote");
   }
@@ -1260,6 +1526,7 @@ function App() {
   async function submitQuoteDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedLines = quoteLines
+      .map((item) => normalizeQuoteLineDraft(item, item.costItems))
       .filter((item) => item.productCode.trim() || item.productName.trim() || item.description.trim())
       .map((item) => ({
         ...item,
@@ -1270,7 +1537,12 @@ function App() {
         productName: item.productName.trim(),
         price: Number(item.price || 0),
         sample: Number(item.sample || 0),
-        description: item.description.trim(),
+        description: buildQuoteLineDescription(item),
+        typeValue: String(item.typeValue ?? "").trim(),
+        sizeValue: String(item.sizeValue ?? "").trim(),
+        colorValue: String(item.colorValue ?? "").trim(),
+        finishedValue: String(item.finishedValue ?? "").trim(),
+        remarksValue: String(item.remarksValue ?? "").trim(),
         pricingNotes: item.pricingNotes.trim(),
         cost: item.cost.trim(),
         costItems: (item.costItems || [])
@@ -1625,7 +1897,8 @@ function App() {
   }
 
   const quotePreviewTier = calculateQuoteTier(quoteTiers, quotePreviewQty);
-  const quotePreviewUnitPrice = getQuoteUnitPrice({ tiers: quoteTiers, costItems: quoteLines[0]?.costItems ?? [] }, quotePreviewQty);
+  const quotePreviewCostItems = quoteLines.find((line) => line.costItems?.length)?.costItems ?? quoteLines[0]?.costItems ?? [];
+  const quotePreviewUnitPrice = getQuoteUnitPrice({ tiers: quoteTiers, costItems: quotePreviewCostItems }, quotePreviewQty);
   const quotePreviewTotal = parseQuantityValue(quotePreviewQty) * quotePreviewUnitPrice;
   const selectedPoId = new URLSearchParams(location.search).get("po") ?? pos[0]?.id ?? "";
   const selectedPo = useMemo(() => pos.find((item) => item.id === selectedPoId || item.poNo === selectedPoId) ?? pos[0] ?? null, [pos, selectedPoId]);
@@ -2318,6 +2591,40 @@ function App() {
                     {t("button.addQuoteLine")}
                   </button>
                 </div>
+                <div className="quote-spec-panel">
+                  <div className="editable-head">
+                    <div>
+                      <strong>字段选项</strong>
+                      <p>TYPE、SIZE、COLOR、FINISHED 在报价录入页只允许选择，新增选项在这里维护。</p>
+                    </div>
+                  </div>
+                  <div className="quote-spec-config">
+                    {(Object.keys(quoteSpecFieldLabels) as QuoteSpecField[]).map((field) => (
+                      <div className="quote-spec-config-row" key={field}>
+                        <span>{quoteSpecFieldLabels[field]}</span>
+                        <select
+                          value={quoteSpecNewValues[field]}
+                          onChange={(event) => setQuoteSpecNewValues((current) => ({ ...current, [field]: event.target.value }))}
+                        >
+                          <option value="">选择已有选项</option>
+                          {quoteSpecOptions[field].map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={quoteSpecNewValues[field]}
+                          onChange={(event) => setQuoteSpecNewValues((current) => ({ ...current, [field]: event.target.value }))}
+                          placeholder={`新增 ${quoteSpecFieldLabels[field]} 选项`}
+                        />
+                        <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteSpecOption(field)}>
+                          新增
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <div className="quote-lines-table">
                   <div className="quote-lines-head">
                     <span>CHECK</span>
@@ -2325,8 +2632,8 @@ function App() {
                     <span>ITEM</span>
                     <span>PRICE</span>
                     <span>SAMPLE</span>
-                    <span>DESCRIPTION</span>
-                    <span>DESCRIPTION</span>
+                    <span>SPEC</span>
+                    <span>PRICING</span>
                     <span>COST</span>
                   </div>
                   {quoteLines.map((line, index) => (
@@ -2379,12 +2686,61 @@ function App() {
                           onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, sample: Number(event.target.value) } : row)))}
                           placeholder="0"
                         />
-                        <textarea
-                          rows={5}
-                          value={line.description}
-                          onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, description: event.target.value } : row)))}
-                          placeholder={"TYPE:\nSIZE:\nCOLOR:\nFINISHED:\nREMARKS:"}
-                        />
+                        <div className="quote-line-specs">
+                          <label>
+                            <span>{quoteSpecFieldLabels.type}</span>
+                            <select value={line.typeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "type", event.target.value)}>
+                              <option value="">-</option>
+                              {quoteSpecOptions.type.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>{quoteSpecFieldLabels.size}</span>
+                            <select value={line.sizeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "size", event.target.value)}>
+                              <option value="">-</option>
+                              {quoteSpecOptions.size.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>{quoteSpecFieldLabels.color}</span>
+                            <select value={line.colorValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "color", event.target.value)}>
+                              <option value="">-</option>
+                              {quoteSpecOptions.color.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            <span>{quoteSpecFieldLabels.finished}</span>
+                            <select value={line.finishedValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "finished", event.target.value)}>
+                              <option value="">-</option>
+                              {quoteSpecOptions.finished.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="quote-line-remarks">
+                            <span>REMARKS</span>
+                            <textarea
+                              rows={5}
+                              value={line.remarksValue ?? ""}
+                              onChange={(event) => setQuoteLineRemarks(index, event.target.value)}
+                              placeholder="备注说明"
+                            />
+                          </label>
+                        </div>
                         <textarea
                           rows={5}
                           value={line.pricingNotes}

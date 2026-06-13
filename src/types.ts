@@ -78,6 +78,11 @@ export interface QuoteLine {
   price: number;
   sample: number;
   description: string;
+  typeValue?: string;
+  sizeValue?: string;
+  colorValue?: string;
+  finishedValue?: string;
+  remarksValue?: string;
   pricingNotes: string;
   cost: string;
   costItems: QuoteCostItem[];
