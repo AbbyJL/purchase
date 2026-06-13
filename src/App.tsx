@@ -313,15 +313,6 @@ function createQuoteLine(overrides: Partial<QuoteLineDraft> = {}): QuoteLineDraf
   };
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
-}
-
 function getProductLabel(product: Product) {
   return `${product.id} · ${product.name}`;
 }
@@ -464,7 +455,7 @@ function App() {
   const [suppliers, setSuppliers] = useState(fallbackSuppliers);
   const [quotes, setQuotes] = useState(fallbackQuotes);
   const [pis, setPIs] = useState(fallbackPIs);
-  const [pos, setPOs] = useState(fallbackPOs);
+  const [pos, setPOs] = useState<PORecord[]>(fallbackPOs);
   const [orders, setOrders] = useState(fallbackOrders);
   const [contracts, setContracts] = useState(fallbackContracts);
   const [loading, setLoading] = useState(true);
@@ -617,7 +608,7 @@ function App() {
         setSuppliers(data.suppliers ?? fallbackSuppliers);
         setQuotes(data.quotes ?? fallbackQuotes);
         setPIs(data.pis ?? fallbackPIs);
-        setPOs(data.pos ?? fallbackPOs);
+        setPOs((data.pos ?? fallbackPOs) as PORecord[]);
         setOrders(data.orders);
         setContracts(data.contracts);
       } catch {
@@ -670,7 +661,7 @@ function App() {
     setSuppliers(data.suppliers ?? fallbackSuppliers);
     setQuotes(data.quotes ?? fallbackQuotes);
     setPIs(data.pis ?? fallbackPIs);
-    setPOs(data.pos ?? fallbackPOs);
+    setPOs((data.pos ?? fallbackPOs) as PORecord[]);
     setOrders(data.orders);
     setContracts(data.contracts);
   }
@@ -934,8 +925,23 @@ function App() {
     if (!file) return;
 
     try {
-      const imageUrl = await readFileAsDataUrl(file);
-      setProductDraft((current) => ({ ...current, imageUrl }));
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("/api/uploads", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = (await response.json()) as
+        | { ok: true; url: string; key: string }
+        | { ok: false; message?: string };
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.ok ? "Upload failed" : result.message || "Upload failed");
+      }
+
+      setProductDraft((current) => ({ ...current, imageUrl: result.url }));
     } catch {
       setNotice(t("notice.imageUploadFailed"));
     }
@@ -1525,6 +1531,15 @@ function App() {
   const openPurchaseOrder = (poId: string) => {
     navigate(`/po?po=${encodeURIComponent(poId)}`);
   };
+  const selectedCommercialInvoiceId = new URLSearchParams(location.search).get("ci") ?? pos[0]?.id ?? "";
+  const selectedCommercialInvoice = useMemo(
+    () => pos.find((item) => item.id === selectedCommercialInvoiceId || item.poNo === selectedCommercialInvoiceId) ?? pos[0] ?? null,
+    [pos, selectedCommercialInvoiceId],
+  );
+  const selectedCommercialInvoiceVendor = getPurchaseOrderVendor(selectedCommercialInvoice);
+  const openCommercialInvoice = (poId: string) => {
+    navigate(`/commercial-invoices?ci=${encodeURIComponent(poId)}`);
+  };
   const openPurchaseOrderFromPI = (pi: PIRecord) => {
     const po = pos.find((item) => item.sourcePiId === pi.id || item.poNo === pi.piNo) ?? pos[0];
     if (po) {
@@ -1533,7 +1548,7 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div className={currentPage === "po" || currentPage === "commercial-invoices" ? "app-shell document-shell" : "app-shell"}>
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">
@@ -1599,12 +1614,14 @@ function App() {
                     ? t("search.suppliers")
                       : currentPage === "quotes"
                         ? t("search.quotes")
-                        : currentPage === "pis"
-                          ? t("search.pis")
-                        : currentPage === "po"
-                          ? t("search.po")
-                          : currentPage === "orders"
-                            ? t("search.orders")
+                  : currentPage === "pis"
+                    ? t("search.pis")
+                    : currentPage === "po"
+                      ? t("search.po")
+                      : currentPage === "commercial-invoices"
+                        ? t("search.commercialInvoices")
+                        : currentPage === "orders"
+                        ? t("search.orders")
                             : currentPage === "contracts"
                               ? t("search.contracts")
                               : t("search.samples")
@@ -1749,6 +1766,20 @@ function App() {
                 pos={pos}
                 selectedPo={selectedPo}
                 onSelectPo={openPurchaseOrder}
+                onExportPdf={() => window.print()}
+              />
+            }
+          />
+          <Route
+            path="/commercial-invoices"
+            element={
+              <CommercialInvoicePage
+                locale={locale}
+                t={t}
+                pos={pos}
+                selectedPo={selectedCommercialInvoice}
+                selectedPoVendor={selectedCommercialInvoiceVendor}
+                onSelectPo={openCommercialInvoice}
                 onExportPdf={() => window.print()}
               />
             }
