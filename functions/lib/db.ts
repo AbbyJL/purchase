@@ -29,6 +29,10 @@ function normalizeSupplierList(row: RecordLike) {
   return toStringArray(row.supplier);
 }
 
+function normalizeCodeList(value: unknown) {
+  return toStringArray(value);
+}
+
 function mapProduct(row: RecordLike) {
   return {
     id: String(row.id),
@@ -39,6 +43,8 @@ function mapProduct(row: RecordLike) {
     stock: Number(row.stock),
     status: String(row.status),
     imageUrl: String(row.image_url ?? row.imageUrl ?? ""),
+    codePrefix: String(row.code_prefix ?? row.codePrefix ?? ""),
+    quoteProductCodes: normalizeCodeList(row.quote_product_codes_json ?? row.quoteProductCodes_json ?? row.quoteProductCodes),
   };
 }
 
@@ -90,6 +96,7 @@ function mapCustomer(row: RecordLike) {
     address: String(row.address),
     status: String(row.status),
     notes: String(row.notes),
+    imageUrl: String(row.image_url ?? row.imageUrl ?? ""),
   };
 }
 
@@ -166,9 +173,23 @@ function mapDevelopment(row: RecordLike) {
 }
 
 function mapPI(row: RecordLike) {
+  const sizeDetails = safeJsonParse(row.size_details_json ?? row.sizeDetails_json ?? row.sizeDetails, []);
+  const lines = safeJsonParse(row.lines_json, []);
+  const fallbackQty = Array.isArray(sizeDetails)
+    ? sizeDetails.reduce((sum: number, item: RecordLike) => sum + Number(item.quantity ?? 0), 0)
+    : 0;
+  const lineQty = Array.isArray(lines)
+    ? lines.reduce((sum: number, item: RecordLike) => sum + Number(item.quantity ?? 0), 0)
+    : 0;
+  const orderQtyValue = row.order_qty ?? row.orderQty ?? fallbackQty ?? lineQty ?? 0;
+  const orderQty = Number(orderQtyValue);
+  const stockOutQtyValue = row.stock_out_qty ?? row.stockOutQty ?? orderQtyValue ?? lineQty ?? 0;
+  const stockOutQty = Number(stockOutQtyValue);
+  const plNo = String(row.pl_no ?? row.plNo ?? String(row.pi_no ?? row.piNo ?? "").replace(/^PI/i, "PL"));
   return {
     id: String(row.id),
     piNo: String(row.pi_no ?? row.piNo),
+    plNo,
     customer: String(row.customer),
     brand: String(row.brand),
     vendor: String(row.vendor ?? ""),
@@ -192,8 +213,13 @@ function mapPI(row: RecordLike) {
     finished: String(row.finished ?? ""),
     remarks: String(row.remarks ?? ""),
     imageUrl: String(row.image_url ?? row.imageUrl ?? ""),
-    sizeDetails: safeJsonParse(row.size_details_json ?? row.sizeDetails_json ?? row.sizeDetails, []),
-    lines: safeJsonParse(row.lines_json, []),
+    orderQty,
+    deductedQty: Number(row.deducted_qty ?? row.deductedQty ?? 0),
+    outstandingQty: Number(row.outstanding_qty ?? row.outstandingQty ?? orderQtyValue ?? lineQty ?? 0),
+    inStockQty: Number(row.in_stock_qty ?? row.inStockQty ?? orderQtyValue ?? lineQty ?? 0),
+    stockOutQty,
+    sizeDetails,
+    lines,
     notes: String(row.notes),
   };
 }
@@ -203,6 +229,7 @@ function mapPO(row: RecordLike) {
     id: String(row.id),
     poType: String(row.po_type ?? row.poType ?? "purchase"),
     poNo: String(row.po_no ?? row.poNo),
+    plNo: String(row.pl_no ?? row.plNo ?? ""),
     sourcePiId: String(row.source_pi_id ?? row.sourcePiId ?? ""),
     date: String(row.date ?? ""),
     vendor: String(row.vendor ?? ""),
@@ -340,7 +367,7 @@ export async function getBrandDetail(env: Env, id: string) {
 export async function listCustomers(env: Env) {
   if (!env.DB) return seedCustomers;
   const result = await env.DB.prepare(
-    "SELECT id, name, code, country, contact, phone, email, address, status, notes FROM customers ORDER BY id ASC",
+    "SELECT id, name, code, country, contact, phone, email, address, status, notes, image_url FROM customers ORDER BY id ASC",
   ).all();
   return (result.results ?? []).map(mapCustomer);
 }
@@ -372,7 +399,7 @@ export async function listDevelopments(env: Env) {
 export async function listPIs(env: Env) {
   if (!env.DB) return seedPIs;
   const result = await env.DB.prepare(
-    "SELECT id, pi_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, purchase_generated_at, finance_approved_at, packing_info_generated_at, commercial_invoice_generated_at, payment_confirmed_at, pdf_url, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes FROM pis ORDER BY id ASC",
+    "SELECT id, pi_no, pl_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, purchase_generated_at, finance_approved_at, packing_info_generated_at, commercial_invoice_generated_at, payment_confirmed_at, pdf_url, order_qty, deducted_qty, outstanding_qty, in_stock_qty, stock_out_qty, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes FROM pis ORDER BY id ASC",
   ).all();
   return (result.results ?? []).map(mapPI);
 }
@@ -380,7 +407,7 @@ export async function listPIs(env: Env) {
 export async function listPOs(env: Env) {
   if (!env.DB) return seedPOs;
   const result = await env.DB.prepare(
-    "SELECT id, po_type, po_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url, order_no, maker, make_date, style_no, customer_order_no, craft_product_name, related_order_no, sheet_size, material_in, up_count, quantity, remainder, finished_qty, pack_count, print_method, proof_type, post_process, craft_notes FROM purchase_orders ORDER BY date DESC, po_no ASC",
+    "SELECT id, po_type, po_no, pl_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url, order_no, maker, make_date, style_no, customer_order_no, craft_product_name, related_order_no, sheet_size, material_in, up_count, quantity, remainder, finished_qty, pack_count, print_method, proof_type, post_process, craft_notes FROM purchase_orders ORDER BY date DESC, po_no ASC",
   ).all();
   return (result.results ?? []).map(mapPO);
 }
@@ -428,6 +455,7 @@ export async function overview(env: Env) {
 export async function createProduct(env: Env, input: RecordLike) {
   const id = String(input.id ?? `SPU${Date.now()}`);
   const suppliers = toStringArray(input.suppliers ?? input.suppliersJson ?? input.supplier);
+  const quoteProductCodes = toStringArray(input.quoteProductCodes ?? input.quoteProductCodesJson);
   const payload = {
     id,
     name: String(input.name ?? ""),
@@ -438,6 +466,8 @@ export async function createProduct(env: Env, input: RecordLike) {
     stock: Number(input.stock ?? 0),
     status: String(input.status ?? "In stock"),
     imageUrl: String(input.imageUrl ?? ""),
+    codePrefix: String(input.codePrefix ?? ""),
+    quoteProductCodes,
   };
 
   if (!env.DB) {
@@ -445,9 +475,21 @@ export async function createProduct(env: Env, input: RecordLike) {
   }
 
   await env.DB.prepare(
-    "INSERT INTO products (id, name, supplier, suppliers_json, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    "INSERT INTO products (id, name, supplier, suppliers_json, category_key, price, stock, status, image_url, code_prefix, quote_product_codes_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
   )
-    .bind(payload.id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(
+      payload.id,
+      payload.name,
+      payload.supplier,
+      JSON.stringify(payload.suppliers),
+      payload.categoryKey,
+      payload.price,
+      payload.stock,
+      payload.status,
+      payload.imageUrl,
+      payload.codePrefix,
+      JSON.stringify(payload.quoteProductCodes),
+    )
     .run();
 
   return { ok: true, product: payload };
@@ -457,6 +499,7 @@ export async function updateProduct(env: Env, input: RecordLike) {
   const id = String(input.id ?? "");
   if (!id) return { ok: false, message: "Missing id" };
   const suppliers = toStringArray(input.suppliers ?? input.suppliersJson ?? input.supplier);
+  const quoteProductCodes = toStringArray(input.quoteProductCodes ?? input.quoteProductCodesJson);
 
   const payload = {
     name: String(input.name ?? ""),
@@ -467,6 +510,8 @@ export async function updateProduct(env: Env, input: RecordLike) {
     stock: Number(input.stock ?? 0),
     status: String(input.status ?? "In stock"),
     imageUrl: String(input.imageUrl ?? ""),
+    codePrefix: String(input.codePrefix ?? ""),
+    quoteProductCodes,
   };
 
   if (!env.DB) {
@@ -474,9 +519,21 @@ export async function updateProduct(env: Env, input: RecordLike) {
   }
 
   await env.DB.prepare(
-    "UPDATE products SET name = ?2, supplier = ?3, suppliers_json = ?4, category_key = ?5, price = ?6, stock = ?7, status = ?8, image_url = ?9 WHERE id = ?1",
+    "UPDATE products SET name = ?2, supplier = ?3, suppliers_json = ?4, category_key = ?5, price = ?6, stock = ?7, status = ?8, image_url = ?9, code_prefix = ?10, quote_product_codes_json = ?11 WHERE id = ?1",
   )
-    .bind(id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(
+      id,
+      payload.name,
+      payload.supplier,
+      JSON.stringify(payload.suppliers),
+      payload.categoryKey,
+      payload.price,
+      payload.stock,
+      payload.status,
+      payload.imageUrl,
+      payload.codePrefix,
+      JSON.stringify(payload.quoteProductCodes),
+    )
     .run();
 
   return { ok: true };
@@ -496,10 +553,13 @@ async function upsertProductFromPILine(env: Env, line: RecordLike) {
   const productName = String(line.productName ?? "").trim();
   if (!productCode && !productName) return;
   const lineSupplier = String(line.supplier ?? "").trim();
+  const codePrefix = productCode.includes("-") ? productCode.split("-")[0] : productCode.replace(/\d.*$/, "");
 
   const id = productCode || `SPU${Date.now().toString().slice(-6)}`;
   const existing = await env.DB!.prepare("SELECT * FROM products WHERE id = ?1").bind(id).first<RecordLike>();
   const existingSuppliers = existing ? normalizeSupplierList(existing) : [];
+  const existingQuoteCodes = existing ? toStringArray(existing.quote_product_codes_json ?? existing.quoteProductCodes_json ?? existing.quoteProductCodes) : [];
+  const nextQuoteCodes = Array.from(new Set([...existingQuoteCodes, ...(productCode ? [productCode] : [])]));
   const suppliers = Array.from(new Set([...existingSuppliers, ...(lineSupplier ? [lineSupplier] : [])]));
   const payload = {
     id,
@@ -511,21 +571,47 @@ async function upsertProductFromPILine(env: Env, line: RecordLike) {
     stock: Number(line.stock ?? 0),
     status: String(line.status ?? "In stock"),
     imageUrl: String(line.imageUrl ?? ""),
+    codePrefix: String(existing?.code_prefix ?? existing?.codePrefix ?? codePrefix ?? ""),
+    quoteProductCodes: nextQuoteCodes,
   };
 
   if (existing) {
     await env.DB!.prepare(
-      "UPDATE products SET name = ?2, supplier = ?3, suppliers_json = ?4, category_key = ?5, price = ?6, stock = ?7, status = ?8, image_url = ?9 WHERE id = ?1",
+      "UPDATE products SET name = ?2, supplier = ?3, suppliers_json = ?4, category_key = ?5, price = ?6, stock = ?7, status = ?8, image_url = ?9, code_prefix = ?10, quote_product_codes_json = ?11 WHERE id = ?1",
     )
-      .bind(id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+      .bind(
+        id,
+        payload.name,
+        payload.supplier,
+        JSON.stringify(payload.suppliers),
+        payload.categoryKey,
+        payload.price,
+        payload.stock,
+        payload.status,
+        payload.imageUrl,
+        payload.codePrefix,
+        JSON.stringify(payload.quoteProductCodes),
+      )
       .run();
     return;
   }
 
   await env.DB!.prepare(
-    "INSERT INTO products (id, name, supplier, suppliers_json, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    "INSERT INTO products (id, name, supplier, suppliers_json, category_key, price, stock, status, image_url, code_prefix, quote_product_codes_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
   )
-    .bind(id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(
+      id,
+      payload.name,
+      payload.supplier,
+      JSON.stringify(payload.suppliers),
+      payload.categoryKey,
+      payload.price,
+      payload.stock,
+      payload.status,
+      payload.imageUrl,
+      payload.codePrefix,
+      JSON.stringify(payload.quoteProductCodes),
+    )
     .run();
 }
 
@@ -725,12 +811,13 @@ export async function createCustomer(env: Env, input: RecordLike) {
     address: String(input.address ?? ""),
     status: String(input.status ?? "Active"),
     notes: String(input.notes ?? ""),
+    imageUrl: String(input.imageUrl ?? ""),
   };
   if (!env.DB) return { ok: false, message: "D1 not configured", customer: payload };
   await env.DB.prepare(
-    "INSERT INTO customers (id, name, code, country, contact, phone, email, address, status, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+    "INSERT INTO customers (id, name, code, country, contact, phone, email, address, status, notes, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
   )
-    .bind(payload.id, payload.name, payload.code, payload.country, payload.contact, payload.phone, payload.email, payload.address, payload.status, payload.notes)
+    .bind(payload.id, payload.name, payload.code, payload.country, payload.contact, payload.phone, payload.email, payload.address, payload.status, payload.notes, payload.imageUrl)
     .run();
   return { ok: true, customer: payload };
 }
@@ -748,12 +835,13 @@ export async function updateCustomer(env: Env, input: RecordLike) {
     address: String(input.address ?? ""),
     status: String(input.status ?? "Active"),
     notes: String(input.notes ?? ""),
+    imageUrl: String(input.imageUrl ?? ""),
   };
   if (!env.DB) return { ok: false, message: "D1 not configured" };
   await env.DB.prepare(
-    "UPDATE customers SET name = ?2, code = ?3, country = ?4, contact = ?5, phone = ?6, email = ?7, address = ?8, status = ?9, notes = ?10 WHERE id = ?1",
+    "UPDATE customers SET name = ?2, code = ?3, country = ?4, contact = ?5, phone = ?6, email = ?7, address = ?8, status = ?9, notes = ?10, image_url = ?11 WHERE id = ?1",
   )
-    .bind(id, payload.name, payload.code, payload.country, payload.contact, payload.phone, payload.email, payload.address, payload.status, payload.notes)
+    .bind(id, payload.name, payload.code, payload.country, payload.contact, payload.phone, payload.email, payload.address, payload.status, payload.notes, payload.imageUrl)
     .run();
   return { ok: true };
 }
@@ -1041,6 +1129,7 @@ export async function createPI(env: Env, input: RecordLike) {
   const payload = {
     id,
     piNo: String(input.piNo ?? id),
+    plNo: String(input.plNo ?? input.pl_no ?? String(input.piNo ?? id).replace(/^PI/i, "PL")),
     customer: String(input.customer ?? ""),
     brand: String(input.brand ?? ""),
     vendor: String(input.vendor ?? ""),
@@ -1056,6 +1145,11 @@ export async function createPI(env: Env, input: RecordLike) {
     commercialInvoiceGeneratedAt: String(input.commercialInvoiceGeneratedAt ?? ""),
     paymentConfirmedAt: String(input.paymentConfirmedAt ?? ""),
     pdfUrl: String(input.pdfUrl ?? ""),
+    orderQty: Number(input.orderQty ?? 0),
+    deductedQty: Number(input.deductedQty ?? 0),
+    outstandingQty: Number(input.outstandingQty ?? 0),
+    inStockQty: Number(input.inStockQty ?? 0),
+    stockOutQty: Number(input.stockOutQty ?? 0),
     itemCode: String(input.itemCode ?? ""),
     description: String(input.description ?? ""),
     productType: String(input.productType ?? ""),
@@ -1070,11 +1164,12 @@ export async function createPI(env: Env, input: RecordLike) {
   };
   if (!env.DB) return { ok: false, message: "D1 not configured", pi: payload };
   await env.DB.prepare(
-    "INSERT INTO pis (id, pi_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, purchase_generated_at, finance_approved_at, packing_info_generated_at, commercial_invoice_generated_at, payment_confirmed_at, pdf_url, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
+    "INSERT INTO pis (id, pi_no, pl_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, purchase_generated_at, finance_approved_at, packing_info_generated_at, commercial_invoice_generated_at, payment_confirmed_at, pdf_url, order_qty, deducted_qty, outstanding_qty, in_stock_qty, stock_out_qty, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
   )
     .bind(
       payload.id,
       payload.piNo,
+      payload.plNo,
       payload.customer,
       payload.brand,
       payload.vendor,
@@ -1090,6 +1185,11 @@ export async function createPI(env: Env, input: RecordLike) {
       payload.commercialInvoiceGeneratedAt,
       payload.paymentConfirmedAt,
       payload.pdfUrl,
+      payload.orderQty,
+      payload.deductedQty,
+      payload.outstandingQty,
+      payload.inStockQty,
+      payload.stockOutQty,
       payload.itemCode,
       payload.description,
       payload.productType,
@@ -1114,6 +1214,7 @@ export async function updatePI(env: Env, input: RecordLike) {
   if (!id) return { ok: false, message: "Missing id" };
   const payload = {
     piNo: String(input.piNo ?? ""),
+    plNo: String(input.plNo ?? input.pl_no ?? String(input.piNo ?? "").replace(/^PI/i, "PL")),
     customer: String(input.customer ?? ""),
     brand: String(input.brand ?? ""),
     vendor: String(input.vendor ?? ""),
@@ -1129,6 +1230,11 @@ export async function updatePI(env: Env, input: RecordLike) {
     commercialInvoiceGeneratedAt: String(input.commercialInvoiceGeneratedAt ?? ""),
     paymentConfirmedAt: String(input.paymentConfirmedAt ?? ""),
     pdfUrl: String(input.pdfUrl ?? ""),
+    orderQty: Number(input.orderQty ?? 0),
+    deductedQty: Number(input.deductedQty ?? 0),
+    outstandingQty: Number(input.outstandingQty ?? 0),
+    inStockQty: Number(input.inStockQty ?? 0),
+    stockOutQty: Number(input.stockOutQty ?? 0),
     itemCode: String(input.itemCode ?? ""),
     description: String(input.description ?? ""),
     productType: String(input.productType ?? ""),
@@ -1143,11 +1249,12 @@ export async function updatePI(env: Env, input: RecordLike) {
   };
   if (!env.DB) return { ok: false, message: "D1 not configured" };
   await env.DB.prepare(
-    "UPDATE pis SET pi_no = ?2, customer = ?3, brand = ?4, vendor = ?5, our_ref_no = ?6, delivery_date = ?7, deliver_to = ?8, status = ?9, generated_at = ?10, generated_by = ?11, purchase_generated_at = ?12, finance_approved_at = ?13, packing_info_generated_at = ?14, commercial_invoice_generated_at = ?15, payment_confirmed_at = ?16, pdf_url = ?17, item_code = ?18, description = ?19, product_type = ?20, size = ?21, colors = ?22, finished = ?23, remarks = ?24, image_url = ?25, size_details_json = ?26, lines_json = ?27, notes = ?28 WHERE id = ?1",
+    "UPDATE pis SET pi_no = ?2, pl_no = ?3, customer = ?4, brand = ?5, vendor = ?6, our_ref_no = ?7, delivery_date = ?8, deliver_to = ?9, status = ?10, generated_at = ?11, generated_by = ?12, purchase_generated_at = ?13, finance_approved_at = ?14, packing_info_generated_at = ?15, commercial_invoice_generated_at = ?16, payment_confirmed_at = ?17, pdf_url = ?18, order_qty = ?19, deducted_qty = ?20, outstanding_qty = ?21, in_stock_qty = ?22, stock_out_qty = ?23, item_code = ?24, description = ?25, product_type = ?26, size = ?27, colors = ?28, finished = ?29, remarks = ?30, image_url = ?31, size_details_json = ?32, lines_json = ?33, notes = ?34 WHERE id = ?1",
   )
     .bind(
       id,
       payload.piNo,
+      payload.plNo,
       payload.customer,
       payload.brand,
       payload.vendor,
@@ -1163,6 +1270,11 @@ export async function updatePI(env: Env, input: RecordLike) {
       payload.commercialInvoiceGeneratedAt,
       payload.paymentConfirmedAt,
       payload.pdfUrl,
+      payload.orderQty,
+      payload.deductedQty,
+      payload.outstandingQty,
+      payload.inStockQty,
+      payload.stockOutQty,
       payload.itemCode,
       payload.description,
       payload.productType,
@@ -1194,6 +1306,7 @@ export async function createPO(env: Env, input: RecordLike) {
     id,
     poType: String(input.poType ?? input.po_type ?? "purchase"),
     poNo: String(input.poNo ?? input.po_no ?? id),
+    plNo: String(input.plNo ?? input.pl_no ?? ""),
     sourcePiId: String(input.sourcePiId ?? input.source_pi_id ?? ""),
     date: String(input.date ?? new Date().toISOString().slice(0, 10)),
     vendor: String(input.vendor ?? ""),
@@ -1240,12 +1353,13 @@ export async function createPO(env: Env, input: RecordLike) {
   };
   if (!env.DB) return { ok: false, message: "D1 not configured", po: payload };
   await env.DB.prepare(
-    "INSERT INTO purchase_orders (id, po_type, po_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url, order_no, maker, make_date, style_no, customer_order_no, craft_product_name, related_order_no, sheet_size, material_in, up_count, quantity, remainder, finished_qty, pack_count, print_method, proof_type, post_process, craft_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)",
+    "INSERT INTO purchase_orders (id, po_type, po_no, pl_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url, order_no, maker, make_date, style_no, customer_order_no, craft_product_name, related_order_no, sheet_size, material_in, up_count, quantity, remainder, finished_qty, pack_count, print_method, proof_type, post_process, craft_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45)",
   )
     .bind(
       payload.id,
       payload.poType,
       payload.poNo,
+      payload.plNo,
       payload.sourcePiId,
       payload.date,
       payload.vendor,
@@ -1299,6 +1413,7 @@ export async function updatePO(env: Env, input: RecordLike) {
   const payload = {
     poType: String(input.poType ?? input.po_type ?? "purchase"),
     poNo: String(input.poNo ?? input.po_no ?? id),
+    plNo: String(input.plNo ?? input.pl_no ?? ""),
     sourcePiId: String(input.sourcePiId ?? input.source_pi_id ?? ""),
     date: String(input.date ?? new Date().toISOString().slice(0, 10)),
     vendor: String(input.vendor ?? ""),
@@ -1345,12 +1460,13 @@ export async function updatePO(env: Env, input: RecordLike) {
   };
   if (!env.DB) return { ok: false, message: "D1 not configured" };
   await env.DB.prepare(
-    "UPDATE purchase_orders SET po_type = ?2, po_no = ?3, source_pi_id = ?4, date = ?5, vendor = ?6, vendor_address = ?7, vendor_contact = ?8, vendor_email = ?9, vendor_tel = ?10, vendor_fax = ?11, customer = ?12, our_ref_no = ?13, delivery_date = ?14, deliver_to = ?15, status = ?16, item_code = ?17, description = ?18, product_type = ?19, size = ?20, colors = ?21, finished = ?22, remarks = ?23, lines_json = ?24, packing_rows_json = ?25, notes = ?26, image_url = ?27, order_no = ?28, maker = ?29, make_date = ?30, style_no = ?31, customer_order_no = ?32, craft_product_name = ?33, related_order_no = ?34, sheet_size = ?35, material_in = ?36, up_count = ?37, quantity = ?38, remainder = ?39, finished_qty = ?40, pack_count = ?41, print_method = ?42, proof_type = ?43, post_process = ?44, craft_notes = ?45 WHERE id = ?1",
+    "UPDATE purchase_orders SET po_type = ?2, po_no = ?3, pl_no = ?4, source_pi_id = ?5, date = ?6, vendor = ?7, vendor_address = ?8, vendor_contact = ?9, vendor_email = ?10, vendor_tel = ?11, vendor_fax = ?12, customer = ?13, our_ref_no = ?14, delivery_date = ?15, deliver_to = ?16, status = ?17, item_code = ?18, description = ?19, product_type = ?20, size = ?21, colors = ?22, finished = ?23, remarks = ?24, lines_json = ?25, packing_rows_json = ?26, notes = ?27, image_url = ?28, order_no = ?29, maker = ?30, make_date = ?31, style_no = ?32, customer_order_no = ?33, craft_product_name = ?34, related_order_no = ?35, sheet_size = ?36, material_in = ?37, up_count = ?38, quantity = ?39, remainder = ?40, finished_qty = ?41, pack_count = ?42, print_method = ?43, proof_type = ?44, post_process = ?45, craft_notes = ?46 WHERE id = ?1",
   )
     .bind(
       id,
       payload.poType,
       payload.poNo,
+      payload.plNo,
       payload.sourcePiId,
       payload.date,
       payload.vendor,

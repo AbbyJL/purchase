@@ -6,3 +6,4 @@ dist
 .wrangler-home
 .tmp-*.png
 .codex-*.png
+.workbuddy/

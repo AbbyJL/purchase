@@ -23,6 +23,8 @@ export const products: Product[] = seedProducts.map((item) => ({
   stock: item.stock,
   status: item.status as Product["status"],
   imageUrl: item.imageUrl,
+  codePrefix: item.codePrefix ?? "",
+  quoteProductCodes: [...(item.quoteProductCodes ?? [])],
 }));
 
 export const orders: Order[] = seedOrders.map((item) => ({
@@ -66,6 +68,7 @@ export const customers: Customer[] = seedCustomers.map((item) => ({
   address: item.address,
   status: item.status as Customer["status"],
   notes: item.notes,
+  imageUrl: (item as { imageUrl?: string }).imageUrl ?? "",
 }));
 
 export const suppliers: Supplier[] = seedSuppliers.map((item) => ({
@@ -135,6 +138,7 @@ function mapQuoteLine(item: (typeof seedQuotes)[number]["lines"][number]): Quote
 export const pis: PIRecord[] = seedPIs.map((item) => ({
   id: item.id,
   piNo: item.piNo,
+  plNo: item.plNo ?? "",
   customer: item.customer,
   brand: item.brand,
   vendor: item.vendor,
@@ -150,6 +154,11 @@ export const pis: PIRecord[] = seedPIs.map((item) => ({
   commercialInvoiceGeneratedAt: item.commercialInvoiceGeneratedAt,
   paymentConfirmedAt: item.paymentConfirmedAt,
   pdfUrl: item.pdfUrl,
+  orderQty: item.orderQty ?? 0,
+  deductedQty: item.deductedQty ?? 0,
+  outstandingQty: item.outstandingQty ?? 0,
+  inStockQty: item.inStockQty ?? 0,
+  stockOutQty: item.stockOutQty ?? 0,
   itemCode: item.itemCode,
   description: item.description,
   productType: item.productType,
@@ -167,6 +176,7 @@ export const pos: PORecord[] = seedPOs.map((item) => ({
   id: item.id,
   poType: "purchase" as const,
   poNo: item.poNo,
+  plNo: (item as { plNo?: string }).plNo ?? "",
   sourcePiId: item.sourcePiId,
   date: item.date,
   vendor: item.vendor,

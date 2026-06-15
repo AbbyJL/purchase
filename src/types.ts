@@ -53,6 +53,7 @@ export interface Customer {
   address: string;
   status: PartyStatus;
   notes: string;
+  imageUrl?: string;
 }
 
 export interface Supplier {
@@ -86,6 +87,7 @@ export interface QuoteLine {
   imageUrl: string;
   productCode: string;
   productName: string;
+  suppliers?: string[];
   price: number;
   sample: number;
   description: string;
@@ -166,6 +168,11 @@ export interface PILineItem {
   supplier?: string;
   quantity: number;
   unitPrice: number;
+  orderQty?: number;
+  deductedQty?: number;
+  outstandingQty?: number;
+  inStockQty?: number;
+  stockOutQty?: number;
 }
 
 export interface PISizeDetail {
@@ -177,6 +184,7 @@ export interface PISizeDetail {
 export interface PIRecord {
   id: string;
   piNo: string;
+  plNo?: string;
   customer: string;
   brand: string;
   vendor: string;
@@ -192,6 +200,11 @@ export interface PIRecord {
   commercialInvoiceGeneratedAt: string;
   paymentConfirmedAt: string;
   pdfUrl: string;
+  orderQty?: number;
+  deductedQty?: number;
+  outstandingQty?: number;
+  inStockQty?: number;
+  stockOutQty?: number;
   itemCode: string;
   description: string;
   productType: string;
@@ -227,6 +240,7 @@ export interface PORecord {
   /** po_type: 'purchase' = standard PO, 'craft' = production/craft sheet */
   poType: POType;
   poNo: string;
+  plNo?: string;
   sourcePiId: string;
   date: string;
   vendor: string;
@@ -299,6 +313,8 @@ export interface Product {
   stock: number;
   status: InventoryStatus;
   imageUrl: string;
+  codePrefix?: string;
+  quoteProductCodes?: string[];
 }
 
 export interface Order {

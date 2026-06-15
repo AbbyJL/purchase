@@ -43,6 +43,8 @@ function mapProduct(item: (typeof seedProducts)[number]): Product {
     stock: item.stock,
     status: item.status as Product["status"],
     imageUrl: item.imageUrl,
+    codePrefix: item.codePrefix ?? "",
+    quoteProductCodes: [...(item.quoteProductCodes ?? [])],
   };
 }
 
@@ -80,6 +82,7 @@ function mapCustomer(item: (typeof seedCustomers)[number]): Customer {
     address: item.address,
     status: item.status as Customer["status"],
     notes: item.notes,
+    imageUrl: (item as { imageUrl?: string }).imageUrl ?? "",
   };
 }
 
@@ -163,6 +166,7 @@ function mapPI(item: (typeof seedPIs)[number]): PIRecord {
   return {
     id: item.id,
     piNo: item.piNo,
+    plNo: item.plNo ?? "",
     customer: item.customer,
     brand: item.brand,
     vendor: item.vendor,
@@ -178,6 +182,11 @@ function mapPI(item: (typeof seedPIs)[number]): PIRecord {
     commercialInvoiceGeneratedAt: item.commercialInvoiceGeneratedAt,
     paymentConfirmedAt: item.paymentConfirmedAt,
     pdfUrl: item.pdfUrl,
+    orderQty: item.orderQty ?? 0,
+    deductedQty: item.deductedQty ?? 0,
+    outstandingQty: item.outstandingQty ?? 0,
+    inStockQty: item.inStockQty ?? 0,
+    stockOutQty: item.stockOutQty ?? 0,
     itemCode: item.itemCode,
     description: item.description,
     productType: item.productType,
@@ -197,6 +206,7 @@ function mapPO(item: (typeof seedPOs)[number]): PORecord {
     id: item.id,
     poType: "purchase" as const,
     poNo: item.poNo,
+    plNo: (item as { plNo?: string }).plNo ?? "",
     sourcePiId: item.sourcePiId,
     date: item.date,
     vendor: item.vendor,
