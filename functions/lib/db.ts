@@ -1,4 +1,4 @@
-import { seedBrands, seedContracts, seedCustomers, seedOrders, seedPOs, seedPIs, seedProducts, seedQuotes, seedSuppliers } from "./seed";
+import { seedBrands, seedContracts, seedCustomers, seedDevelopments, seedOrders, seedPOs, seedPIs, seedProducts, seedQuotes, seedSuppliers } from "./seed";
 
 type Env = {
   DB?: D1Database;
@@ -10,11 +10,30 @@ function okJson(data: unknown, init?: ResponseInit) {
   return Response.json(data, init);
 }
 
+function toStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeSupplierList(row: RecordLike) {
+  const fromJson = toStringArray(safeJsonParse(row.suppliers_json ?? row.suppliersJson, []));
+  if (fromJson.length > 0) return fromJson;
+  return toStringArray(row.supplier);
+}
+
 function mapProduct(row: RecordLike) {
   return {
     id: String(row.id),
     name: String(row.name),
-    supplier: String(row.supplier ?? ""),
+    suppliers: normalizeSupplierList(row),
     categoryKey: String(row.category_key ?? row.categoryKey),
     price: Number(row.price),
     stock: Number(row.stock),
@@ -122,6 +141,30 @@ function mapQuote(row: RecordLike) {
   };
 }
 
+function mapDevelopment(row: RecordLike) {
+  return {
+    id: String(row.id),
+    developmentNo: String(row.development_no ?? row.developmentNo ?? ""),
+    date: String(row.date ?? ""),
+    modificationDate: String(row.modification_date ?? row.modificationDate ?? ""),
+    register: String(row.register ?? ""),
+    itemType: String(row.item_type ?? row.itemType ?? ""),
+    brand: String(row.brand ?? ""),
+    linkman: String(row.linkman ?? ""),
+    salesperson: String(row.salesperson ?? ""),
+    customer: String(row.customer ?? ""),
+    item: String(row.item ?? ""),
+    productCode: String(row.product_code ?? row.productCode ?? ""),
+    productName: String(row.product_name ?? row.productName ?? ""),
+    status: String(row.status),
+    sourceQuoteId: String(row.source_quote_id ?? row.sourceQuoteId ?? ""),
+    sourceQuoteNo: String(row.source_quote_no ?? row.sourceQuoteNo ?? ""),
+    lines: safeJsonParse(row.lines_json, []),
+    imageUrl: String(row.image_url ?? row.imageUrl ?? ""),
+    notes: String(row.notes ?? ""),
+  };
+}
+
 function mapPI(row: RecordLike) {
   return {
     id: String(row.id),
@@ -158,6 +201,7 @@ function mapPI(row: RecordLike) {
 function mapPO(row: RecordLike) {
   return {
     id: String(row.id),
+    poType: String(row.po_type ?? row.poType ?? "purchase"),
     poNo: String(row.po_no ?? row.poNo),
     sourcePiId: String(row.source_pi_id ?? row.sourcePiId ?? ""),
     date: String(row.date ?? ""),
@@ -183,14 +227,31 @@ function mapPO(row: RecordLike) {
     packingRows: safeJsonParse(row.packing_rows_json, []),
     notes: String(row.notes ?? ""),
     imageUrl: String(row.image_url ?? row.imageUrl ?? ""),
+    // Craft-specific fields
+    orderNo: String(row.order_no ?? row.orderNo ?? ""),
+    maker: String(row.maker ?? row.maker ?? ""),
+    makeDate: String(row.make_date ?? row.makeDate ?? ""),
+    styleNo: String(row.style_no ?? row.styleNo ?? ""),
+    customerOrderNo: String(row.customer_order_no ?? row.customerOrderNo ?? ""),
+    craftProductName: String(row.craft_product_name ?? row.craftProductName ?? ""),
+    relatedOrderNo: String(row.related_order_no ?? row.relatedOrderNo ?? ""),
+    sheetSize: String(row.sheet_size ?? row.sheetSize ?? ""),
+    materialIn: String(row.material_in ?? row.materialIn ?? ""),
+    upCount: String(row.up_count ?? row.upCount ?? ""),
+    quantity: Number(row.quantity ?? 0),
+    remainder: Number(row.remainder ?? 0),
+    finishedQty: Number(row.finished_qty ?? 0),
+    packCount: String(row.pack_count ?? row.packCount ?? ""),
+    printMethod: safeJsonParse(row.print_method, []),
+    proofType: safeJsonParse(row.proof_type, []),
+    postProcess: safeJsonParse(row.post_process, []),
+    craftNotes: String(row.craft_notes ?? row.craftNotes ?? ""),
   };
 }
 
 export async function listProducts(env: Env) {
   if (!env.DB) return seedProducts;
-  const result = await env.DB.prepare(
-    "SELECT id, name, supplier, category_key, price, stock, status, image_url FROM products ORDER BY id ASC",
-  ).all();
+  const result = await env.DB.prepare("SELECT * FROM products ORDER BY id ASC").all();
   return (result.results ?? []).map(mapProduct);
 }
 
@@ -218,6 +279,64 @@ export async function listBrands(env: Env) {
   return (result.results ?? []).map(mapBrand);
 }
 
+export async function getBrandDetail(env: Env, id: string) {
+  // --- 获取品牌基本信息 ---
+  let brand: ReturnType<typeof mapBrand> | undefined;
+  if (!env.DB) {
+    brand = seedBrands.find((b) => b.id === id) as ReturnType<typeof mapBrand> | undefined;
+  } else {
+    const row = await env.DB.prepare(
+      "SELECT id, name, code, customer, supplier, country, status, owner, notes FROM brands WHERE id = ?1",
+    ).bind(id).first<RecordLike>();
+    if (row) brand = mapBrand(row);
+  }
+  if (!brand) return { ok: false, message: "Brand not found" };
+
+  // --- 统计数据 ---
+  let stats = {
+    quotes: 0,
+    developments: 0,
+    pis: 0,
+    pos: 0,
+  };
+
+  if (!env.DB) {
+    // 种子数据 fallback
+    stats.quotes = seedQuotes.filter((q) => q.brand === brand!.name).length;
+    stats.developments = seedDevelopments.filter((d) => d.brand === brand!.name).length;
+    stats.pis = seedPIs.filter((p) => p.brand === brand!.name).length;
+    // PO 无直接 brand 字段，通过关联的 PI brand 统计
+    const piIds = seedPIs.filter((p) => p.brand === brand!.name).map((p) => p.id);
+    stats.pos = seedPOs.filter((po) => piIds.includes(po.sourcePiId)).length;
+  } else {
+    const [quotesRow, devRow, pisRow] = await Promise.all([
+      env.DB.prepare("SELECT COUNT(*) AS count FROM quotes WHERE brand = ?1").bind(brand.name).first<{ count: number }>(),
+      env.DB.prepare("SELECT COUNT(*) AS count FROM developments WHERE brand = ?1").bind(brand.name).first<{ count: number }>(),
+      env.DB.prepare("SELECT COUNT(*) AS count FROM pis WHERE brand = ?1").bind(brand.name).first<{ count: number }>(),
+    ]);
+    stats.quotes = Number(quotesRow?.count ?? 0);
+    stats.developments = Number(devRow?.count ?? 0);
+    stats.pis = Number(pisRow?.count ?? 0);
+
+    // PO 统计：通过 PI 关联
+    const piIdsResult = await env.DB.prepare(
+      "SELECT id FROM pis WHERE brand = ?1",
+    ).bind(brand.name).all<{ id: string }>();
+    const piIds = (piIdsResult.results ?? []).map((r) => r.id);
+    if (piIds.length > 0) {
+      // D1 不支持 IN (?) 绑定数组，逐条查询
+      let poCount = 0;
+      for (const piId of piIds) {
+        const row = await env.DB.prepare("SELECT COUNT(*) AS count FROM purchase_orders WHERE source_pi_id = ?1").bind(piId).first<{ count: number }>();
+        poCount += Number(row?.count ?? 0);
+      }
+      stats.pos = poCount;
+    }
+  }
+
+  return { ok: true, brand, stats };
+}
+
 export async function listCustomers(env: Env) {
   if (!env.DB) return seedCustomers;
   const result = await env.DB.prepare(
@@ -242,6 +361,14 @@ export async function listQuotes(env: Env) {
   return (result.results ?? []).map(mapQuote);
 }
 
+export async function listDevelopments(env: Env) {
+  if (!env.DB) return seedDevelopments;
+  const result = await env.DB.prepare(
+    "SELECT id, development_no, date, modification_date, register, item_type, brand, linkman, salesperson, customer, item, product_code, product_name, status, source_quote_id, source_quote_no, lines_json, image_url, notes FROM developments ORDER BY date DESC, development_no ASC",
+  ).all();
+  return (result.results ?? []).map(mapDevelopment);
+}
+
 export async function listPIs(env: Env) {
   if (!env.DB) return seedPIs;
   const result = await env.DB.prepare(
@@ -253,7 +380,7 @@ export async function listPIs(env: Env) {
 export async function listPOs(env: Env) {
   if (!env.DB) return seedPOs;
   const result = await env.DB.prepare(
-    "SELECT id, po_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url FROM purchase_orders ORDER BY date DESC, po_no ASC",
+    "SELECT id, po_type, po_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url, order_no, maker, make_date, style_no, customer_order_no, craft_product_name, related_order_no, sheet_size, material_in, up_count, quantity, remainder, finished_qty, pack_count, print_method, proof_type, post_process, craft_notes FROM purchase_orders ORDER BY date DESC, po_no ASC",
   ).all();
   return (result.results ?? []).map(mapPO);
 }
@@ -268,11 +395,12 @@ export async function overview(env: Env) {
       customers: seedCustomers.length,
       suppliers: seedSuppliers.length,
       quotes: seedQuotes.length,
+      developments: seedDevelopments.length,
       pis: seedPIs.length,
     };
   }
 
-  const [productsResult, ordersResult, contractsResult, brandsResult, customersResult, suppliersResult, quotesResult, pisResult] = await Promise.all([
+  const [productsResult, ordersResult, contractsResult, brandsResult, customersResult, suppliersResult, quotesResult, developmentsResult, pisResult] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM products").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM orders").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM contracts").first<{ count: number }>(),
@@ -280,6 +408,7 @@ export async function overview(env: Env) {
     env.DB.prepare("SELECT COUNT(*) AS count FROM customers").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM suppliers").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM quotes").first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM developments").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM pis").first<{ count: number }>(),
   ]);
 
@@ -291,16 +420,19 @@ export async function overview(env: Env) {
     customers: Number(customersResult?.count ?? 0),
     suppliers: Number(suppliersResult?.count ?? 0),
     quotes: Number(quotesResult?.count ?? 0),
+    developments: Number(developmentsResult?.count ?? 0),
     pis: Number(pisResult?.count ?? 0),
   };
 }
 
 export async function createProduct(env: Env, input: RecordLike) {
   const id = String(input.id ?? `SPU${Date.now()}`);
+  const suppliers = toStringArray(input.suppliers ?? input.suppliersJson ?? input.supplier);
   const payload = {
     id,
     name: String(input.name ?? ""),
-    supplier: String(input.supplier ?? ""),
+    supplier: suppliers[0] ?? "",
+    suppliers,
     categoryKey: String(input.categoryKey ?? "office"),
     price: Number(input.price ?? 0),
     stock: Number(input.stock ?? 0),
@@ -313,9 +445,9 @@ export async function createProduct(env: Env, input: RecordLike) {
   }
 
   await env.DB.prepare(
-    "INSERT INTO products (id, name, supplier, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    "INSERT INTO products (id, name, supplier, suppliers_json, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
   )
-    .bind(payload.id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(payload.id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
     .run();
 
   return { ok: true, product: payload };
@@ -324,10 +456,12 @@ export async function createProduct(env: Env, input: RecordLike) {
 export async function updateProduct(env: Env, input: RecordLike) {
   const id = String(input.id ?? "");
   if (!id) return { ok: false, message: "Missing id" };
+  const suppliers = toStringArray(input.suppliers ?? input.suppliersJson ?? input.supplier);
 
   const payload = {
     name: String(input.name ?? ""),
-    supplier: String(input.supplier ?? ""),
+    supplier: suppliers[0] ?? "",
+    suppliers,
     categoryKey: String(input.categoryKey ?? "office"),
     price: Number(input.price ?? 0),
     stock: Number(input.stock ?? 0),
@@ -340,9 +474,9 @@ export async function updateProduct(env: Env, input: RecordLike) {
   }
 
   await env.DB.prepare(
-    "UPDATE products SET name = ?2, supplier = ?3, category_key = ?4, price = ?5, stock = ?6, status = ?7, image_url = ?8 WHERE id = ?1",
+    "UPDATE products SET name = ?2, supplier = ?3, suppliers_json = ?4, category_key = ?5, price = ?6, stock = ?7, status = ?8, image_url = ?9 WHERE id = ?1",
   )
-    .bind(id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
     .run();
 
   return { ok: true };
@@ -361,12 +495,17 @@ async function upsertProductFromPILine(env: Env, line: RecordLike) {
   const productCode = String(line.productCode ?? "").trim();
   const productName = String(line.productName ?? "").trim();
   if (!productCode && !productName) return;
+  const lineSupplier = String(line.supplier ?? "").trim();
 
   const id = productCode || `SPU${Date.now().toString().slice(-6)}`;
+  const existing = await env.DB!.prepare("SELECT * FROM products WHERE id = ?1").bind(id).first<RecordLike>();
+  const existingSuppliers = existing ? normalizeSupplierList(existing) : [];
+  const suppliers = Array.from(new Set([...existingSuppliers, ...(lineSupplier ? [lineSupplier] : [])]));
   const payload = {
     id,
     name: productName || productCode,
-    supplier: String(line.supplier ?? ""),
+    supplier: suppliers[0] ?? "",
+    suppliers,
     categoryKey: String(line.categoryKey ?? "accessory"),
     price: Number(line.unitPrice ?? line.price ?? 0),
     stock: Number(line.stock ?? 0),
@@ -374,20 +513,19 @@ async function upsertProductFromPILine(env: Env, line: RecordLike) {
     imageUrl: String(line.imageUrl ?? ""),
   };
 
-  const exists = await env.DB!.prepare("SELECT id FROM products WHERE id = ?1").bind(id).first<{ id: string }>();
-  if (exists) {
+  if (existing) {
     await env.DB!.prepare(
-      "UPDATE products SET name = ?2, supplier = ?3, category_key = ?4, price = ?5, stock = ?6, status = ?7, image_url = ?8 WHERE id = ?1",
+      "UPDATE products SET name = ?2, supplier = ?3, suppliers_json = ?4, category_key = ?5, price = ?6, stock = ?7, status = ?8, image_url = ?9 WHERE id = ?1",
     )
-      .bind(id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+      .bind(id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
       .run();
     return;
   }
 
   await env.DB!.prepare(
-    "INSERT INTO products (id, name, supplier, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    "INSERT INTO products (id, name, supplier, suppliers_json, category_key, price, stock, status, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
   )
-    .bind(id, payload.name, payload.supplier, payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
+    .bind(id, payload.name, payload.supplier, JSON.stringify(payload.suppliers), payload.categoryKey, payload.price, payload.stock, payload.status, payload.imageUrl)
     .run();
 }
 
@@ -730,6 +868,116 @@ export async function createQuote(env: Env, input: RecordLike) {
   return { ok: true, quote: payload };
 }
 
+export async function createDevelopment(env: Env, input: RecordLike) {
+  const id = String(input.id ?? `DV${Date.now().toString().slice(-6)}`);
+  const payload = {
+    id,
+    developmentNo: String(input.developmentNo ?? input.development_no ?? id),
+    date: String(input.date ?? new Date().toISOString().slice(0, 10)),
+    modificationDate: String(input.modificationDate ?? input.modification_date ?? new Date().toISOString().slice(0, 10)),
+    register: String(input.register ?? ""),
+    itemType: String(input.itemType ?? input.item_type ?? ""),
+    brand: String(input.brand ?? ""),
+    linkman: String(input.linkman ?? ""),
+    salesperson: String(input.salesperson ?? ""),
+    customer: String(input.customer ?? ""),
+    item: String(input.item ?? ""),
+    productCode: String(input.productCode ?? ""),
+    productName: String(input.productName ?? ""),
+    status: String(input.status ?? "Draft"),
+    sourceQuoteId: String(input.sourceQuoteId ?? input.source_quote_id ?? ""),
+    sourceQuoteNo: String(input.sourceQuoteNo ?? input.source_quote_no ?? ""),
+    lines: Array.isArray(input.lines) ? input.lines : [],
+    imageUrl: String(input.imageUrl ?? ""),
+    notes: String(input.notes ?? ""),
+  };
+  if (!env.DB) return { ok: false, message: "D1 not configured", development: payload };
+  await env.DB.prepare(
+    "INSERT INTO developments (id, development_no, date, modification_date, register, item_type, brand, linkman, salesperson, customer, item, product_code, product_name, status, source_quote_id, source_quote_no, lines_json, image_url, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+  )
+    .bind(
+      payload.id,
+      payload.developmentNo,
+      payload.date,
+      payload.modificationDate,
+      payload.register,
+      payload.itemType,
+      payload.brand,
+      payload.linkman,
+      payload.salesperson,
+      payload.customer,
+      payload.item,
+      payload.productCode,
+      payload.productName,
+      payload.status,
+      payload.sourceQuoteId,
+      payload.sourceQuoteNo,
+      JSON.stringify(payload.lines),
+      payload.imageUrl,
+      payload.notes,
+    )
+    .run();
+  return { ok: true, development: payload };
+}
+
+export async function updateDevelopment(env: Env, input: RecordLike) {
+  const id = String(input.id ?? "");
+  if (!id) return { ok: false, message: "Missing id" };
+  const payload = {
+    developmentNo: String(input.developmentNo ?? input.development_no ?? id),
+    date: String(input.date ?? new Date().toISOString().slice(0, 10)),
+    modificationDate: String(input.modificationDate ?? input.modification_date ?? new Date().toISOString().slice(0, 10)),
+    register: String(input.register ?? ""),
+    itemType: String(input.itemType ?? input.item_type ?? ""),
+    brand: String(input.brand ?? ""),
+    linkman: String(input.linkman ?? ""),
+    salesperson: String(input.salesperson ?? ""),
+    customer: String(input.customer ?? ""),
+    item: String(input.item ?? ""),
+    productCode: String(input.productCode ?? ""),
+    productName: String(input.productName ?? ""),
+    status: String(input.status ?? "Draft"),
+    sourceQuoteId: String(input.sourceQuoteId ?? input.source_quote_id ?? ""),
+    sourceQuoteNo: String(input.sourceQuoteNo ?? input.source_quote_no ?? ""),
+    lines: Array.isArray(input.lines) ? input.lines : [],
+    imageUrl: String(input.imageUrl ?? ""),
+    notes: String(input.notes ?? ""),
+  };
+  if (!env.DB) return { ok: false, message: "D1 not configured" };
+  await env.DB.prepare(
+    "UPDATE developments SET development_no = ?2, date = ?3, modification_date = ?4, register = ?5, item_type = ?6, brand = ?7, linkman = ?8, salesperson = ?9, customer = ?10, item = ?11, product_code = ?12, product_name = ?13, status = ?14, source_quote_id = ?15, source_quote_no = ?16, lines_json = ?17, image_url = ?18, notes = ?19 WHERE id = ?1",
+  )
+    .bind(
+      id,
+      payload.developmentNo,
+      payload.date,
+      payload.modificationDate,
+      payload.register,
+      payload.itemType,
+      payload.brand,
+      payload.linkman,
+      payload.salesperson,
+      payload.customer,
+      payload.item,
+      payload.productCode,
+      payload.productName,
+      payload.status,
+      payload.sourceQuoteId,
+      payload.sourceQuoteNo,
+      JSON.stringify(payload.lines),
+      payload.imageUrl,
+      payload.notes,
+    )
+    .run();
+  return { ok: true };
+}
+
+export async function deleteDevelopment(env: Env, id: string) {
+  if (!env.DB) return { ok: false, message: "D1 not configured" };
+  await env.DB.prepare("DELETE FROM developments WHERE id = ?1").bind(id).run();
+  return { ok: true };
+}
+
 export async function updateQuote(env: Env, input: RecordLike) {
   const id = String(input.id ?? "");
   if (!id) return { ok: false, message: "Missing id" };
@@ -944,6 +1192,7 @@ export async function createPO(env: Env, input: RecordLike) {
   const id = String(input.id ?? `PO${Date.now().toString().slice(-6)}`);
   const payload = {
     id,
+    poType: String(input.poType ?? input.po_type ?? "purchase"),
     poNo: String(input.poNo ?? input.po_no ?? id),
     sourcePiId: String(input.sourcePiId ?? input.source_pi_id ?? ""),
     date: String(input.date ?? new Date().toISOString().slice(0, 10)),
@@ -969,13 +1218,33 @@ export async function createPO(env: Env, input: RecordLike) {
     packingRows: Array.isArray(input.packingRows) ? input.packingRows : [],
     notes: String(input.notes ?? ""),
     imageUrl: String(input.imageUrl ?? ""),
+    // Craft-specific fields
+    orderNo: String(input.orderNo ?? input.order_no ?? ""),
+    maker: String(input.maker ?? ""),
+    makeDate: String(input.makeDate ?? input.make_date ?? ""),
+    styleNo: String(input.styleNo ?? input.style_no ?? ""),
+    customerOrderNo: String(input.customerOrderNo ?? input.customer_order_no ?? ""),
+    craftProductName: String(input.craftProductName ?? input.craft_product_name ?? ""),
+    relatedOrderNo: String(input.relatedOrderNo ?? input.related_order_no ?? ""),
+    sheetSize: String(input.sheetSize ?? input.sheet_size ?? ""),
+    materialIn: String(input.materialIn ?? input.material_in ?? ""),
+    upCount: String(input.upCount ?? input.up_count ?? ""),
+    quantity: Number(input.quantity ?? 0),
+    remainder: Number(input.remainder ?? 0),
+    finishedQty: Number(input.finishedQty ?? input.finished_qty ?? 0),
+    packCount: String(input.packCount ?? input.pack_count ?? ""),
+    printMethod: Array.isArray(input.printMethod) ? input.printMethod : [],
+    proofType: Array.isArray(input.proofType) ? input.proofType : [],
+    postProcess: Array.isArray(input.postProcess) ? input.postProcess : [],
+    craftNotes: String(input.craftNotes ?? input.craft_notes ?? ""),
   };
   if (!env.DB) return { ok: false, message: "D1 not configured", po: payload };
   await env.DB.prepare(
-    "INSERT INTO purchase_orders (id, po_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)",
+    "INSERT INTO purchase_orders (id, po_type, po_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url, order_no, maker, make_date, style_no, customer_order_no, craft_product_name, related_order_no, sheet_size, material_in, up_count, quantity, remainder, finished_qty, pack_count, print_method, proof_type, post_process, craft_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44)",
   )
     .bind(
       payload.id,
+      payload.poType,
       payload.poNo,
       payload.sourcePiId,
       payload.date,
@@ -1001,6 +1270,24 @@ export async function createPO(env: Env, input: RecordLike) {
       JSON.stringify(payload.packingRows),
       payload.notes,
       payload.imageUrl,
+      payload.orderNo,
+      payload.maker,
+      payload.makeDate,
+      payload.styleNo,
+      payload.customerOrderNo,
+      payload.craftProductName,
+      payload.relatedOrderNo,
+      payload.sheetSize,
+      payload.materialIn,
+      payload.upCount,
+      payload.quantity,
+      payload.remainder,
+      payload.finishedQty,
+      payload.packCount,
+      JSON.stringify(payload.printMethod),
+      JSON.stringify(payload.proofType),
+      JSON.stringify(payload.postProcess),
+      payload.craftNotes,
     )
     .run();
   return { ok: true, po: payload };
@@ -1010,6 +1297,7 @@ export async function updatePO(env: Env, input: RecordLike) {
   const id = String(input.id ?? "");
   if (!id) return { ok: false, message: "Missing id" };
   const payload = {
+    poType: String(input.poType ?? input.po_type ?? "purchase"),
     poNo: String(input.poNo ?? input.po_no ?? id),
     sourcePiId: String(input.sourcePiId ?? input.source_pi_id ?? ""),
     date: String(input.date ?? new Date().toISOString().slice(0, 10)),
@@ -1035,13 +1323,33 @@ export async function updatePO(env: Env, input: RecordLike) {
     packingRows: Array.isArray(input.packingRows) ? input.packingRows : [],
     notes: String(input.notes ?? ""),
     imageUrl: String(input.imageUrl ?? ""),
+    // Craft-specific fields
+    orderNo: String(input.orderNo ?? input.order_no ?? ""),
+    maker: String(input.maker ?? ""),
+    makeDate: String(input.makeDate ?? input.make_date ?? ""),
+    styleNo: String(input.styleNo ?? input.style_no ?? ""),
+    customerOrderNo: String(input.customerOrderNo ?? input.customer_order_no ?? ""),
+    craftProductName: String(input.craftProductName ?? input.craft_product_name ?? ""),
+    relatedOrderNo: String(input.relatedOrderNo ?? input.related_order_no ?? ""),
+    sheetSize: String(input.sheetSize ?? input.sheet_size ?? ""),
+    materialIn: String(input.materialIn ?? input.material_in ?? ""),
+    upCount: String(input.upCount ?? input.up_count ?? ""),
+    quantity: Number(input.quantity ?? 0),
+    remainder: Number(input.remainder ?? 0),
+    finishedQty: Number(input.finishedQty ?? input.finished_qty ?? 0),
+    packCount: String(input.packCount ?? input.pack_count ?? ""),
+    printMethod: Array.isArray(input.printMethod) ? input.printMethod : [],
+    proofType: Array.isArray(input.proofType) ? input.proofType : [],
+    postProcess: Array.isArray(input.postProcess) ? input.postProcess : [],
+    craftNotes: String(input.craftNotes ?? input.craft_notes ?? ""),
   };
   if (!env.DB) return { ok: false, message: "D1 not configured" };
   await env.DB.prepare(
-    "UPDATE purchase_orders SET po_no = ?2, source_pi_id = ?3, date = ?4, vendor = ?5, vendor_address = ?6, vendor_contact = ?7, vendor_email = ?8, vendor_tel = ?9, vendor_fax = ?10, customer = ?11, our_ref_no = ?12, delivery_date = ?13, deliver_to = ?14, status = ?15, item_code = ?16, description = ?17, product_type = ?18, size = ?19, colors = ?20, finished = ?21, remarks = ?22, lines_json = ?23, packing_rows_json = ?24, notes = ?25, image_url = ?26 WHERE id = ?1",
+    "UPDATE purchase_orders SET po_type = ?2, po_no = ?3, source_pi_id = ?4, date = ?5, vendor = ?6, vendor_address = ?7, vendor_contact = ?8, vendor_email = ?9, vendor_tel = ?10, vendor_fax = ?11, customer = ?12, our_ref_no = ?13, delivery_date = ?14, deliver_to = ?15, status = ?16, item_code = ?17, description = ?18, product_type = ?19, size = ?20, colors = ?21, finished = ?22, remarks = ?23, lines_json = ?24, packing_rows_json = ?25, notes = ?26, image_url = ?27, order_no = ?28, maker = ?29, make_date = ?30, style_no = ?31, customer_order_no = ?32, craft_product_name = ?33, related_order_no = ?34, sheet_size = ?35, material_in = ?36, up_count = ?37, quantity = ?38, remainder = ?39, finished_qty = ?40, pack_count = ?41, print_method = ?42, proof_type = ?43, post_process = ?44, craft_notes = ?45 WHERE id = ?1",
   )
     .bind(
       id,
+      payload.poType,
       payload.poNo,
       payload.sourcePiId,
       payload.date,
@@ -1067,6 +1375,24 @@ export async function updatePO(env: Env, input: RecordLike) {
       JSON.stringify(payload.packingRows),
       payload.notes,
       payload.imageUrl,
+      payload.orderNo,
+      payload.maker,
+      payload.makeDate,
+      payload.styleNo,
+      payload.customerOrderNo,
+      payload.craftProductName,
+      payload.relatedOrderNo,
+      payload.sheetSize,
+      payload.materialIn,
+      payload.upCount,
+      payload.quantity,
+      payload.remainder,
+      payload.finishedQty,
+      payload.packCount,
+      JSON.stringify(payload.printMethod),
+      JSON.stringify(payload.proofType),
+      JSON.stringify(payload.postProcess),
+      payload.craftNotes,
     )
     .run();
   return { ok: true };

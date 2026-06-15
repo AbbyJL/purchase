@@ -8,7 +8,18 @@ export type InventoryStatus = "In stock" | "Low stock" | "Out of stock";
 export type BrandStatus = "Active" | "Inactive";
 export type PartyStatus = "Active" | "Inactive";
 export type QuoteStatus = "Draft" | "Sent" | "Approved" | "Rejected";
+export type DevelopmentStatus = "Draft" | "In progress" | "Confirmed" | "Closed";
 export type PIStatus = "Draft" | "Generated" | "Sent" | "Closed";
+export type POType = "purchase" | "craft";
+
+/** Print method options for craft process sheet */
+export type PrintMethod = "single_side" | "double_side" | "work_and_turn" | "work_and_tumble";
+
+/** Proof type options for craft process sheet */
+export type ProofType = "sample" | "ps_plate" | "ctp_plate";
+
+/** Post process options for craft process sheet */
+export type PostProcess = "printing" | "laminating" | "mounting" | "die_cutting" | "uv_coating";
 
 export interface Contract {
   id: string;
@@ -111,6 +122,43 @@ export interface Quote {
   notes: string;
 }
 
+export interface DevelopmentLine {
+  id?: string;
+  checked: boolean;
+  imageUrl: string;
+  productCode: string;
+  productName: string;
+  description: string;
+  typeValue?: string;
+  sizeValue?: string;
+  colorValue?: string;
+  finishedValue?: string;
+  remarksValue?: string;
+  specLocked?: boolean;
+}
+
+export interface DevelopmentRecord {
+  id: string;
+  developmentNo: string;
+  date: string;
+  modificationDate: string;
+  register: string;
+  itemType: string;
+  brand: string;
+  linkman: string;
+  salesperson: string;
+  customer: string;
+  item: string;
+  productCode: string;
+  productName: string;
+  status: DevelopmentStatus;
+  sourceQuoteId: string;
+  sourceQuoteNo: string;
+  lines: DevelopmentLine[];
+  imageUrl: string;
+  notes: string;
+}
+
 export interface PILineItem {
   id?: string;
   productCode: string;
@@ -176,6 +224,8 @@ export interface POPackingRow {
 
 export interface PORecord {
   id: string;
+  /** po_type: 'purchase' = standard PO, 'craft' = production/craft sheet */
+  poType: POType;
   poNo: string;
   sourcePiId: string;
   date: string;
@@ -201,12 +251,49 @@ export interface PORecord {
   packingRows: POPackingRow[];
   notes: string;
   imageUrl: string;
+  // --- Craft-specific fields (used when poType === 'craft') ---
+  /** Order number (订单编号) */
+  orderNo: string;
+  /** Maker/creator (制单人) */
+  maker: string;
+  /** Creation date (制单日期) */
+  makeDate: string;
+  /** Style number (款号) */
+  styleNo: string;
+  /** Customer order number (客户单号) */
+  customerOrderNo: string;
+  /** Product name for craft (品名) */
+  craftProductName: string;
+  /** Related order number (关联订单号) */
+  relatedOrderNo: string;
+  /** Sheet size / 开张 (e.g. "230 * 325") */
+  sheetSize: string;
+  /** Material in / 来料 */
+  materialIn: string;
+  /** Up count / 开数 */
+  upCount: string;
+  /** Quantity / 数量 */
+  quantity: number;
+  /** Remainder / 余量 */
+  remainder: number;
+  /** Finished quantity / 成品数 */
+  finishedQty: number;
+  /** Pack count / 拼数 */
+  packCount: string;
+  /** Print method JSON array (印刷方式) */
+  printMethod: PrintMethod[];
+  /** Proof type JSON array (看样类型) */
+  proofType: ProofType[];
+  /** Post process JSON array (后道要求) */
+  postProcess: PostProcess[];
+  /** Craft notes (工艺备注) */
+  craftNotes: string;
 }
 
 export interface Product {
   id: string;
   name: string;
-  supplier: string;
+  suppliers: string[];
   categoryKey: "clothing" | "office" | "home" | "accessory";
   price: number;
   stock: number;

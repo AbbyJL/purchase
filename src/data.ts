@@ -1,6 +1,6 @@
-import { IconBox, IconChartBar, IconFileDescription, IconReceipt2, IconTag, IconTruck, IconUsers, IconFileInvoice } from "@tabler/icons-react";
-import { seedBrands, seedContracts, seedCustomers, seedOrders, seedPOs, seedPIs, seedProducts, seedQuotes, seedSuppliers } from "../shared/seed";
-import type { Brand, Contract, Customer, DashboardStat, Order, PIRecord, PORecord, Product, Quote, QuoteLine, Supplier } from "./types";
+import { IconBox, IconChartBar, IconFileDescription, IconFlask, IconReceipt2, IconTag, IconTruck, IconUsers, IconFileInvoice } from "@tabler/icons-react";
+import { seedBrands, seedContracts, seedCustomers, seedDevelopments, seedOrders, seedPOs, seedPIs, seedProducts, seedQuotes, seedSuppliers } from "../shared/seed";
+import type { Brand, Contract, Customer, DashboardStat, DevelopmentRecord, Order, PIRecord, PORecord, Product, Quote, QuoteLine, Supplier } from "./types";
 
 export const dashboardStats: DashboardStat[] = [
   { labelKey: "stat.products", value: "245", icon: IconBox },
@@ -10,13 +10,14 @@ export const dashboardStats: DashboardStat[] = [
   { labelKey: "stat.customers", value: "2", icon: IconUsers },
   { labelKey: "stat.suppliers", value: "2", icon: IconTruck },
   { labelKey: "stat.quotes", value: "1", icon: IconReceipt2 },
+  { labelKey: "stat.development", value: "1", icon: IconFlask },
   { labelKey: "stat.pis", value: "1", icon: IconFileInvoice },
 ];
 
 export const products: Product[] = seedProducts.map((item) => ({
   id: item.id,
   name: item.name,
-  supplier: item.supplier,
+  suppliers: [...item.suppliers],
   categoryKey: item.categoryKey as Product["categoryKey"],
   price: item.price,
   stock: item.stock,
@@ -102,6 +103,28 @@ export const quotes: Quote[] = seedQuotes.map((item) => ({
   notes: item.notes,
 }));
 
+export const developments: DevelopmentRecord[] = seedDevelopments.map((item) => ({
+  id: item.id,
+  developmentNo: item.developmentNo,
+  date: item.date,
+  modificationDate: item.modificationDate,
+  register: item.register,
+  itemType: item.itemType,
+  brand: item.brand,
+  linkman: item.linkman,
+  salesperson: item.salesperson,
+  customer: item.customer,
+  item: item.item,
+  productCode: item.productCode,
+  productName: item.productName,
+  status: item.status as DevelopmentRecord["status"],
+  sourceQuoteId: item.sourceQuoteId,
+  sourceQuoteNo: item.sourceQuoteNo,
+  lines: item.lines.map((line) => ({ ...line })),
+  imageUrl: item.imageUrl,
+  notes: item.notes,
+}));
+
 function mapQuoteLine(item: (typeof seedQuotes)[number]["lines"][number]): QuoteLine {
   return {
     ...item,
@@ -142,6 +165,7 @@ export const pis: PIRecord[] = seedPIs.map((item) => ({
 
 export const pos: PORecord[] = seedPOs.map((item) => ({
   id: item.id,
+  poType: "purchase" as const,
   poNo: item.poNo,
   sourcePiId: item.sourcePiId,
   date: item.date,
@@ -167,4 +191,22 @@ export const pos: PORecord[] = seedPOs.map((item) => ({
   packingRows: [...item.packingRows],
   notes: item.notes,
   imageUrl: item.imageUrl,
+  orderNo: "",
+  maker: "",
+  makeDate: "",
+  styleNo: "",
+  customerOrderNo: "",
+  craftProductName: "",
+  relatedOrderNo: "",
+  sheetSize: "",
+  materialIn: "",
+  upCount: "",
+  quantity: 0,
+  remainder: 0,
+  finishedQty: 0,
+  packCount: "",
+  printMethod: [],
+  proofType: [],
+  postProcess: [],
+  craftNotes: "",
 }));

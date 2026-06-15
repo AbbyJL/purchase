@@ -10,8 +10,10 @@ import {
   IconCopy,
   IconEdit,
   IconDownload,
+  IconEye,
   IconFileInvoice,
   IconHome2,
+  IconFlask,
   IconLanguage,
   IconLayoutDashboard,
   IconPlus,
@@ -33,6 +35,7 @@ import {
   createContract as apiCreateContract,
   createBrand as apiCreateBrand,
   createCustomer as apiCreateCustomer,
+  createDevelopment as apiCreateDevelopment,
   createOrder as apiCreateOrder,
   createPI as apiCreatePI,
   createPO as apiCreatePO,
@@ -40,8 +43,10 @@ import {
   createQuote as apiCreateQuote,
   createSupplier as apiCreateSupplier,
   deleteBrand as apiDeleteBrand,
+  getBrandDetail as apiGetBrandDetail,
   deleteCustomer as apiDeleteCustomer,
   deleteContract as apiDeleteContract,
+  deleteDevelopment as apiDeleteDevelopment,
   deleteOrder as apiDeleteOrder,
   deletePI as apiDeletePI,
   deletePO as apiDeletePO,
@@ -52,6 +57,7 @@ import {
   updateBrand as apiUpdateBrand,
   updateCustomer as apiUpdateCustomer,
   updateContract as apiUpdateContract,
+  updateDevelopment as apiUpdateDevelopment,
   updateOrder as apiUpdateOrder,
   updatePI as apiUpdatePI,
   updatePO as apiUpdatePO,
@@ -64,6 +70,7 @@ import {
   contracts as fallbackContracts,
   customers as fallbackCustomers,
   dashboardStats as fallbackStats,
+  developments as fallbackDevelopments,
   orders as fallbackOrders,
   pos as fallbackPOs,
   pis as fallbackPIs,
@@ -72,7 +79,7 @@ import {
   suppliers as fallbackSuppliers,
 } from "./data";
 import { translate } from "./i18n";
-import type { Brand, Contract, Customer, Locale, Order, PIRecord, PORecord, Product, Quote, QuoteCostItem, QuoteLine, QuoteTier, Supplier, PILineItem } from "./types";
+import type { Brand, Contract, Customer, DevelopmentLine, DevelopmentRecord, Locale, Order, PIRecord, PORecord, POType, PrintMethod, ProofType, PostProcess, Product, Quote, QuoteCostItem, QuoteLine, QuoteTier, Supplier, PILineItem } from "./types";
 
 const navItems = [
   { to: "/dashboard", key: "nav.dashboard", icon: IconLayoutDashboard },
@@ -81,6 +88,7 @@ const navItems = [
   { to: "/customers", key: "nav.customers", icon: IconUsers },
   { to: "/suppliers", key: "nav.suppliers", icon: IconTruck },
   { to: "/quotes", key: "nav.quotes", icon: IconReceipt2 },
+  { to: "/development", key: "nav.development", icon: IconFlask },
   { to: "/pis", key: "nav.pis", icon: IconFileInvoice },
   { to: "/po", key: "nav.po", icon: IconReceipt2 },
   { to: "/commercial-invoices", key: "nav.commercialInvoices", icon: IconFileInvoice },
@@ -90,7 +98,7 @@ const navItems = [
 type ProductDraft = {
   id?: string;
   name: string;
-  supplier: string;
+  suppliers: string[];
   categoryKey: Product["categoryKey"];
   price: string;
   stock: string;
@@ -164,6 +172,29 @@ type QuoteDraft = {
 
 type QuoteLineDraft = QuoteLine;
 
+type DevelopmentLineDraft = DevelopmentLine;
+
+type DevelopmentDraft = {
+  id?: string;
+  developmentNo: string;
+  date: string;
+  modificationDate: string;
+  register: string;
+  itemType: string;
+  brand: string;
+  linkman: string;
+  salesperson: string;
+  customer: string;
+  item: string;
+  productCode: string;
+  productName: string;
+  status: DevelopmentRecord["status"];
+  sourceQuoteId: string;
+  sourceQuoteNo: string;
+  imageUrl: string;
+  notes: string;
+};
+
 type QuoteSpecField = "type" | "size" | "color" | "finished";
 
 type QuoteSpecDraft = {
@@ -213,6 +244,7 @@ type PIDraft = {
 
 type PODraft = {
   id?: string;
+  poType: POType;
   poNo: string;
   sourcePiId: string;
   date: string;
@@ -236,13 +268,32 @@ type PODraft = {
   remarks: string;
   notes: string;
   imageUrl: string;
+  // Craft-specific fields
+  orderNo: string;
+  maker: string;
+  makeDate: string;
+  styleNo: string;
+  customerOrderNo: string;
+  craftProductName: string;
+  relatedOrderNo: string;
+  sheetSize: string;
+  materialIn: string;
+  upCount: string;
+  quantity: number;
+  remainder: number;
+  finishedQty: number;
+  packCount: string;
+  printMethod: PrintMethod[];
+  proofType: ProofType[];
+  postProcess: PostProcess[];
+  craftNotes: string;
 };
 
-type ModalKind = "product" | "brand" | "customer" | "supplier" | "quote" | "pi" | "po" | "order" | "contract";
+type ModalKind = "product" | "brand" | "customer" | "supplier" | "quote" | "development" | "pi" | "po" | "craft" | "order" | "contract";
 
 const emptyDraft: ProductDraft = {
   name: "",
-  supplier: "",
+  suppliers: [""],
   categoryKey: "clothing",
   price: "",
   stock: "",
@@ -307,6 +358,26 @@ const emptyQuoteDraft: QuoteDraft = {
   productName: "",
   status: "Draft",
   item: "",
+  imageUrl: "",
+  notes: "",
+};
+
+const emptyDevelopmentDraft: DevelopmentDraft = {
+  developmentNo: "",
+  date: new Date().toISOString().slice(0, 10),
+  modificationDate: new Date().toISOString().slice(0, 10),
+  register: "",
+  itemType: "",
+  brand: "",
+  linkman: "",
+  salesperson: "",
+  customer: "",
+  item: "",
+  productCode: "",
+  productName: "",
+  status: "Draft",
+  sourceQuoteId: "",
+  sourceQuoteNo: "",
   imageUrl: "",
   notes: "",
 };
@@ -443,6 +514,7 @@ const emptyPIDraft: PIDraft = {
 };
 
 const emptyPODraft: PODraft = {
+  poType: "purchase",
   poNo: "",
   sourcePiId: "",
   date: new Date().toISOString().slice(0, 10),
@@ -466,6 +538,55 @@ const emptyPODraft: PODraft = {
   remarks: "",
   notes: "",
   imageUrl: "",
+  // Craft defaults (empty for purchase type)
+  orderNo: "",
+  maker: "",
+  makeDate: "",
+  styleNo: "",
+  customerOrderNo: "",
+  craftProductName: "",
+  relatedOrderNo: "",
+  sheetSize: "",
+  materialIn: "",
+  upCount: "",
+  quantity: 0,
+  remainder: 0,
+  finishedQty: 0,
+  packCount: "",
+  printMethod: [],
+  proofType: [],
+  postProcess: [],
+  craftNotes: "",
+};
+
+const emptyCraftDraft: PODraft = {
+  ...emptyPODraft,
+  poType: "craft",
+  poNo: "",
+  sourcePiId: "",
+  date: new Date().toISOString().slice(0, 10),
+  vendor: "嘉兴市壹佳印刷有限公司",
+  customer: "",
+  status: "Draft",
+  // Craft defaults
+  orderNo: `CRFT${Date.now().toString().slice(-9)}`,
+  maker: "",
+  makeDate: new Date().toISOString().slice(0, 10),
+  styleNo: "",
+  customerOrderNo: "",
+  craftProductName: "",
+  relatedOrderNo: "",
+  sheetSize: "",
+  materialIn: "",
+  upCount: "",
+  quantity: 0,
+  remainder: 0,
+  finishedQty: 0,
+  packCount: "",
+  printMethod: [],
+  proofType: [],
+  postProcess: [],
+  craftNotes: "",
 };
 
 function createRowId(prefix: string) {
@@ -680,8 +801,85 @@ function createQuoteSheetTemplate() {
   };
 }
 
+function normalizeDevelopmentLineDraft(line: DevelopmentLine, fallbackId?: string): DevelopmentLineDraft {
+  const parsed = parseQuoteLineDescription(line.description);
+  const spec: QuoteSpecDraft = {
+    typeValue: line.typeValue ?? parsed.typeValue,
+    sizeValue: line.sizeValue ?? parsed.sizeValue,
+    colorValue: line.colorValue ?? parsed.colorValue,
+    finishedValue: line.finishedValue ?? parsed.finishedValue,
+    remarksValue: line.remarksValue ?? parsed.remarksValue,
+  };
+
+  return {
+    ...line,
+    id: line.id ?? fallbackId ?? createLineItemId(),
+    description: buildQuoteLineDescription(spec),
+    typeValue: spec.typeValue,
+    sizeValue: spec.sizeValue,
+    colorValue: spec.colorValue,
+    finishedValue: spec.finishedValue,
+    remarksValue: spec.remarksValue,
+    checked: Boolean(line.checked),
+    imageUrl: line.imageUrl ?? "",
+    productCode: line.productCode ?? "",
+    productName: line.productName ?? "",
+  };
+}
+
+function createDevelopmentLine(overrides: Partial<DevelopmentLineDraft> = {}): DevelopmentLineDraft {
+  const parsed = parseQuoteLineDescription(overrides.description ?? "");
+  const spec: QuoteSpecDraft = {
+    typeValue: overrides.typeValue ?? parsed.typeValue,
+    sizeValue: overrides.sizeValue ?? parsed.sizeValue,
+    colorValue: overrides.colorValue ?? parsed.colorValue,
+    finishedValue: overrides.finishedValue ?? parsed.finishedValue,
+    remarksValue: overrides.remarksValue ?? parsed.remarksValue,
+  };
+
+  return normalizeDevelopmentLineDraft(
+    {
+      checked: true,
+      imageUrl: "",
+      productCode: "",
+      productName: "",
+      description: buildQuoteLineDescription(spec),
+      typeValue: spec.typeValue,
+      sizeValue: spec.sizeValue,
+      colorValue: spec.colorValue,
+      finishedValue: spec.finishedValue,
+      remarksValue: spec.remarksValue,
+      specLocked: false,
+      ...overrides,
+      id: overrides.id ?? createLineItemId(),
+    },
+    overrides.id,
+  );
+}
+
 function getProductLabel(product: Product) {
-  return [product.id, product.name, product.supplier].filter(Boolean).join(" · ");
+  return [product.id, product.name, product.suppliers.join(" / ")].filter(Boolean).join(" · ");
+}
+
+function normalizeProductSuppliers(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function getProductSupplierLabel(product: Product) {
+  return product.suppliers.length > 0 ? product.suppliers.join(" / ") : "-";
+}
+
+function mergeProductSuppliers(existing: string[], additions: string[]) {
+  return Array.from(new Set([...existing, ...additions.map((item) => item.trim()).filter(Boolean)]));
 }
 
 function syncProductsFromPILines(products: Product[], lines: PILineItem[]) {
@@ -695,11 +893,12 @@ function syncProductsFromPILines(products: Product[], lines: PILineItem[]) {
 
     const existingIndex = next.findIndex((item) => item.id === productCode || item.name === productName);
     if (existingIndex >= 0) {
+      const suppliers = mergeProductSuppliers(next[existingIndex].suppliers, supplier ? [supplier] : []);
       next[existingIndex] = {
         ...next[existingIndex],
         id: productCode || next[existingIndex].id,
         name: productName || next[existingIndex].name,
-        supplier: supplier || next[existingIndex].supplier,
+        suppliers,
         price: Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : next[existingIndex].price,
       };
       continue;
@@ -708,7 +907,7 @@ function syncProductsFromPILines(products: Product[], lines: PILineItem[]) {
     next.unshift({
       id: productCode || createRowId("SPU"),
       name: productName || productCode,
-      supplier,
+      suppliers: supplier ? [supplier] : [],
       categoryKey: "accessory",
       price: Number(line.unitPrice || 0),
       stock: 0,
@@ -843,14 +1042,6 @@ function formatTimestamp(value: string, locale: Locale) {
   }).format(date);
 }
 
-function toDateTimeLocalValue(value: string) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-}
-
 type PITimelineStage = {
   key: string;
   labelKey: string;
@@ -868,6 +1059,17 @@ function getPITimeline(pi?: PIRecord | null): PITimelineStage[] {
     { key: "commercial", labelKey: "pi.timeline.commercial", time: pi.commercialInvoiceGeneratedAt },
     { key: "payment", labelKey: "pi.timeline.payment", time: pi.paymentConfirmedAt },
   ];
+}
+
+function touchTimelineValue(current: string, fallback: string) {
+  return current || fallback;
+}
+
+function updatePITimeline(pi: PIRecord, updates: Partial<Record<"generatedAt" | "purchaseGeneratedAt" | "financeApprovedAt" | "packingInfoGeneratedAt" | "commercialInvoiceGeneratedAt" | "paymentConfirmedAt", string>>): PIRecord {
+  return {
+    ...pi,
+    ...updates,
+  };
 }
 
 type PartyDetails = {
@@ -980,6 +1182,7 @@ function App() {
   const [customers, setCustomers] = useState(fallbackCustomers);
   const [suppliers, setSuppliers] = useState(fallbackSuppliers);
   const [quotes, setQuotes] = useState(fallbackQuotes);
+  const [developments, setDevelopments] = useState(fallbackDevelopments);
   const [pis, setPIs] = useState(fallbackPIs);
   const [pos, setPOs] = useState<PORecord[]>(fallbackPOs);
   const [orders, setOrders] = useState(fallbackOrders);
@@ -1000,6 +1203,9 @@ function App() {
   const [quoteTiers, setQuoteTiers] = useState<QuoteTier[]>([]);
   const [quotePreviewQty, setQuotePreviewQty] = useState("1M");
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [developmentDraft, setDevelopmentDraft] = useState<DevelopmentDraft>(emptyDevelopmentDraft);
+  const [developmentLines, setDevelopmentLines] = useState<DevelopmentLineDraft[]>([]);
+  const [editingDevelopmentId, setEditingDevelopmentId] = useState<string | null>(null);
   const [quoteSpecOptions, setQuoteSpecOptions] = useState<QuoteSpecOptions>(() => loadQuoteSpecOptions());
   const [quoteSpecNewValues, setQuoteSpecNewValues] = useState<Record<QuoteSpecField, string>>({
     type: "",
@@ -1013,6 +1219,8 @@ function App() {
   const [editingPIId, setEditingPIId] = useState<string | null>(null);
   const [poDraft, setPODraft] = useState<PODraft>(emptyPODraft);
   const [editingPoId, setEditingPoId] = useState<string | null>(null);
+  const [craftDraft, setCraftDraft] = useState<PODraft>(emptyCraftDraft);
+  const [editingCraftId, setEditingCraftId] = useState<string | null>(null);
   const [orderDraft, setOrderDraft] = useState<OrderDraft>(emptyOrderDraft);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [contractDraft, setContractDraft] = useState<ContractDraft>(emptyContractDraft);
@@ -1029,6 +1237,7 @@ function App() {
     if (location.pathname.startsWith("/customers")) return "customers";
     if (location.pathname.startsWith("/suppliers")) return "suppliers";
     if (location.pathname.startsWith("/quotes")) return "quotes";
+    if (location.pathname.startsWith("/development")) return "development";
     if (location.pathname.startsWith("/pis")) return "pis";
     if (location.pathname.startsWith("/po/")) return "po-detail";
     if (location.pathname.startsWith("/po")) return "po";
@@ -1069,6 +1278,66 @@ function App() {
           : row,
       ),
     );
+  }
+
+  function setDevelopmentLineSpecValue(rowIndex: number, field: QuoteSpecField, value: string) {
+    const key = quoteSpecValueKeys[field];
+    setDevelopmentLines((current) =>
+      current.map((row, index) => {
+        if (index !== rowIndex) return row;
+        const next = { ...row, [key]: value } as DevelopmentLineDraft;
+        return {
+          ...next,
+          description: buildQuoteLineDescription(next),
+        };
+      }),
+    );
+  }
+
+  function setDevelopmentLineRemarks(rowIndex: number, value: string) {
+    setDevelopmentLines((current) =>
+      current.map((row, index) =>
+        index === rowIndex
+          ? {
+              ...row,
+              remarksValue: value,
+              description: buildQuoteLineDescription({
+                typeValue: row.typeValue ?? "",
+                sizeValue: row.sizeValue ?? "",
+                colorValue: row.colorValue ?? "",
+                finishedValue: row.finishedValue ?? "",
+                remarksValue: value,
+              }),
+            }
+          : row,
+      ),
+    );
+  }
+
+  function updateDevelopmentLineWithProduct(rowIndex: number, productId: string) {
+    const product = products.find((item) => item.id === productId);
+    setDevelopmentLines((current) =>
+      current.map((row, index) =>
+        index === rowIndex
+          ? product
+            ? {
+                ...row,
+                productCode: product.id,
+                productName: product.name,
+                imageUrl: row.imageUrl || product.imageUrl,
+              }
+            : {
+                ...row,
+                productCode: "",
+                productName: "",
+              }
+          : row,
+      ),
+    );
+  }
+
+  function getDevelopmentLineProductId(line: DevelopmentLineDraft) {
+    return products.find((item) => item.id === line.productCode || item.name === line.productName)?.id ?? "";
   }
 
   function addQuoteSpecOption(field: QuoteSpecField) {
@@ -1118,7 +1387,7 @@ function App() {
                 ...row,
                 productCode: product.id,
                 productName: product.name,
-                supplier: product.supplier,
+                supplier: row.supplier || product.suppliers[0] || "",
                 unitPrice: Number(product.price || 0),
               }
             : {
@@ -1152,6 +1421,8 @@ function App() {
             ? "page.suppliers"
             : currentPage === "quotes"
               ? "page.quotes"
+              : currentPage === "development"
+                ? "page.development"
               : currentPage === "pis"
                   ? "page.pis"
                   : currentPage === "po"
@@ -1183,6 +1454,7 @@ function App() {
             if (card.labelKey === "stat.customers") return { ...card, value: String(data.stats.customers) };
             if (card.labelKey === "stat.suppliers") return { ...card, value: String(data.stats.suppliers) };
             if (card.labelKey === "stat.quotes") return { ...card, value: String(data.stats.quotes) };
+            if (card.labelKey === "stat.development") return { ...card, value: String(data.stats.developments) };
             if (card.labelKey === "stat.pis") return { ...card, value: String(data.stats.pis) };
             if (card.labelKey === "stat.orders") return { ...card, value: String(data.stats.orders) };
             if (card.labelKey === "stat.contracts") return { ...card, value: String(data.stats.contracts) };
@@ -1194,6 +1466,7 @@ function App() {
         setCustomers(data.customers ?? fallbackCustomers);
         setSuppliers(data.suppliers ?? fallbackSuppliers);
         setQuotes(data.quotes ?? fallbackQuotes);
+        setDevelopments(data.developments ?? fallbackDevelopments);
         setPIs(data.pis ?? fallbackPIs);
         setPOs((data.pos ?? fallbackPOs) as PORecord[]);
         setOrders(data.orders);
@@ -1236,6 +1509,7 @@ function App() {
         if (card.labelKey === "stat.customers") return { ...card, value: String(data.stats.customers) };
         if (card.labelKey === "stat.suppliers") return { ...card, value: String(data.stats.suppliers) };
         if (card.labelKey === "stat.quotes") return { ...card, value: String(data.stats.quotes) };
+        if (card.labelKey === "stat.development") return { ...card, value: String(data.stats.developments) };
         if (card.labelKey === "stat.pis") return { ...card, value: String(data.stats.pis) };
         if (card.labelKey === "stat.orders") return { ...card, value: String(data.stats.orders) };
         if (card.labelKey === "stat.contracts") return { ...card, value: String(data.stats.contracts) };
@@ -1247,6 +1521,7 @@ function App() {
     setCustomers(data.customers ?? fallbackCustomers);
     setSuppliers(data.suppliers ?? fallbackSuppliers);
     setQuotes(data.quotes ?? fallbackQuotes);
+    setDevelopments(data.developments ?? fallbackDevelopments);
     setPIs(data.pis ?? fallbackPIs);
     setPOs((data.pos ?? fallbackPOs) as PORecord[]);
     setOrders(data.orders);
@@ -1265,7 +1540,7 @@ function App() {
     setProductDraft({
       id: product.id,
       name: product.name,
-      supplier: product.supplier,
+      suppliers: product.suppliers.length > 0 ? [...product.suppliers] : [""],
       categoryKey: product.categoryKey,
       price: String(product.price),
       stock: String(product.stock),
@@ -1520,10 +1795,11 @@ function App() {
 
   async function submitProductDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const suppliers = productDraft.suppliers.map((item) => item.trim()).filter(Boolean);
     const draft = {
       id: editingProductId ?? `SPU${Date.now().toString().slice(-6)}`,
       name: productDraft.name.trim(),
-      supplier: productDraft.supplier.trim(),
+      suppliers,
       categoryKey: productDraft.categoryKey,
       price: Number(productDraft.price),
       stock: Number(productDraft.stock),
@@ -1531,7 +1807,7 @@ function App() {
       imageUrl: productDraft.imageUrl.trim(),
     } satisfies Product;
 
-    if (!draft.name || !draft.supplier) {
+    if (!draft.name || draft.suppliers.length === 0) {
       setNotice(t("notice.productRequired"));
       return;
     }
@@ -1858,6 +2134,222 @@ function App() {
     }
   }
 
+  function startCreateDevelopment(sourceQuote?: Quote) {
+    setEditingDevelopmentId(null);
+    const initialQuote = sourceQuote ?? quotes[0] ?? null;
+    const primaryLine = initialQuote?.lines?.[0];
+    setDevelopmentDraft({
+      ...emptyDevelopmentDraft,
+      developmentNo: createRowId("DV"),
+      date: new Date().toISOString().slice(0, 10),
+      modificationDate: new Date().toISOString().slice(0, 10),
+      register: initialQuote?.register || "朱佳毅",
+      itemType: initialQuote?.itemType || "",
+      brand: initialQuote?.brand || "",
+      linkman: initialQuote?.linkman || "",
+      salesperson: initialQuote?.salesperson || "",
+      customer: initialQuote?.customer || "",
+      item: initialQuote?.item || initialQuote?.productName || "",
+      productCode: initialQuote?.productCode || primaryLine?.productCode || "",
+      productName: initialQuote?.productName || primaryLine?.productName || "",
+      status: initialQuote ? "In progress" : "Draft",
+      sourceQuoteId: initialQuote?.id || "",
+      sourceQuoteNo: initialQuote?.quoteNo || "",
+      imageUrl: initialQuote?.imageUrl || primaryLine?.imageUrl || "",
+      notes: initialQuote ? `Generated from quote ${initialQuote.quoteNo || initialQuote.id}` : "",
+    });
+    setDevelopmentLines(
+      initialQuote?.lines?.length
+        ? initialQuote.lines.map((line) =>
+            createDevelopmentLine({
+              checked: line.checked,
+              imageUrl: line.imageUrl,
+              productCode: line.productCode,
+              productName: line.productName,
+              description: buildQuoteLineDescription({
+                typeValue: line.typeValue ?? parseQuoteLineDescription(line.description).typeValue,
+                sizeValue: line.sizeValue ?? parseQuoteLineDescription(line.description).sizeValue,
+                colorValue: line.colorValue ?? parseQuoteLineDescription(line.description).colorValue,
+                finishedValue: line.finishedValue ?? parseQuoteLineDescription(line.description).finishedValue,
+                remarksValue: line.remarksValue ?? parseQuoteLineDescription(line.description).remarksValue,
+              }),
+              typeValue: line.typeValue,
+              sizeValue: line.sizeValue,
+              colorValue: line.colorValue,
+              finishedValue: line.finishedValue,
+              remarksValue: line.remarksValue,
+              specLocked: line.specLocked,
+            }),
+          )
+        : [createDevelopmentLine()],
+    );
+    setNotice(null);
+    setActiveModal("development");
+  }
+
+  function updateDevelopmentQuote(sourceQuoteId: string) {
+    const sourceQuote = quotes.find((item) => item.id === sourceQuoteId || item.quoteNo === sourceQuoteId) ?? null;
+    setDevelopmentDraft((current) => ({
+      ...current,
+      sourceQuoteId: sourceQuote?.id ?? "",
+      sourceQuoteNo: sourceQuote?.quoteNo ?? "",
+      register: sourceQuote?.register || current.register,
+      itemType: sourceQuote?.itemType || current.itemType,
+      brand: sourceQuote?.brand || current.brand,
+      linkman: sourceQuote?.linkman || current.linkman,
+      salesperson: sourceQuote?.salesperson || current.salesperson,
+      customer: sourceQuote?.customer || current.customer,
+      item: sourceQuote?.item || sourceQuote?.productName || current.item,
+      productCode: sourceQuote?.productCode || current.productCode,
+      productName: sourceQuote?.productName || current.productName,
+      imageUrl: sourceQuote?.imageUrl || current.imageUrl,
+    }));
+
+    if (sourceQuote) {
+      setDevelopmentLines(
+        sourceQuote.lines.length
+          ? sourceQuote.lines.map((line) =>
+              createDevelopmentLine({
+                checked: line.checked,
+                imageUrl: line.imageUrl,
+                productCode: line.productCode,
+                productName: line.productName,
+                description: buildQuoteLineDescription({
+                  typeValue: line.typeValue ?? parseQuoteLineDescription(line.description).typeValue,
+                  sizeValue: line.sizeValue ?? parseQuoteLineDescription(line.description).sizeValue,
+                  colorValue: line.colorValue ?? parseQuoteLineDescription(line.description).colorValue,
+                  finishedValue: line.finishedValue ?? parseQuoteLineDescription(line.description).finishedValue,
+                  remarksValue: line.remarksValue ?? parseQuoteLineDescription(line.description).remarksValue,
+                }),
+                typeValue: line.typeValue,
+                sizeValue: line.sizeValue,
+                colorValue: line.colorValue,
+                finishedValue: line.finishedValue,
+                remarksValue: line.remarksValue,
+                specLocked: line.specLocked,
+              }),
+            )
+          : [createDevelopmentLine()],
+      );
+    } else {
+      setDevelopmentLines([createDevelopmentLine()]);
+    }
+  }
+
+  function startEditDevelopment(development: DevelopmentRecord) {
+    setEditingDevelopmentId(development.id);
+    setDevelopmentDraft({
+      id: development.id,
+      developmentNo: development.developmentNo,
+      date: development.date,
+      modificationDate: development.modificationDate,
+      register: development.register,
+      itemType: development.itemType,
+      brand: development.brand,
+      linkman: development.linkman,
+      salesperson: development.salesperson,
+      customer: development.customer,
+      item: development.item,
+      productCode: development.productCode,
+      productName: development.productName,
+      status: development.status,
+      sourceQuoteId: development.sourceQuoteId,
+      sourceQuoteNo: development.sourceQuoteNo,
+      imageUrl: development.imageUrl,
+      notes: development.notes,
+    });
+    setDevelopmentLines((development.lines ?? []).map((line) => normalizeDevelopmentLineDraft(line)));
+    setNotice(null);
+    setActiveModal("development");
+  }
+
+  async function submitDevelopmentDraft(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedLines = developmentLines
+      .map((item) => normalizeDevelopmentLineDraft(item))
+      .filter((item) => item.productCode.trim() || item.productName.trim() || item.description.trim())
+      .map((item) => ({
+        ...item,
+        id: item.id ?? createLineItemId(),
+        checked: Boolean(item.checked),
+        imageUrl: item.imageUrl.trim(),
+        productCode: item.productCode.trim(),
+        productName: item.productName.trim(),
+        description: buildQuoteLineDescription({
+          typeValue: String(item.typeValue ?? "").trim(),
+          sizeValue: String(item.sizeValue ?? "").trim(),
+          colorValue: String(item.colorValue ?? "").trim(),
+          finishedValue: String(item.finishedValue ?? "").trim(),
+          remarksValue: String(item.remarksValue ?? "").trim(),
+        }),
+        typeValue: String(item.typeValue ?? "").trim(),
+        sizeValue: String(item.sizeValue ?? "").trim(),
+        colorValue: String(item.colorValue ?? "").trim(),
+        finishedValue: String(item.finishedValue ?? "").trim(),
+        remarksValue: String(item.remarksValue ?? "").trim(),
+        specLocked: Boolean(item.specLocked),
+      }));
+
+    const firstLine = normalizedLines[0];
+    const draft = {
+      id: editingDevelopmentId ?? createRowId("DV"),
+      developmentNo: developmentDraft.developmentNo.trim() || createRowId("DV"),
+      date: developmentDraft.date,
+      modificationDate: developmentDraft.modificationDate || new Date().toISOString().slice(0, 10),
+      register: developmentDraft.register.trim(),
+      itemType: developmentDraft.itemType.trim(),
+      brand: developmentDraft.brand.trim(),
+      linkman: developmentDraft.linkman.trim(),
+      salesperson: developmentDraft.salesperson.trim(),
+      customer: developmentDraft.customer.trim(),
+      item: developmentDraft.item.trim(),
+      productCode: firstLine?.productCode || developmentDraft.productCode.trim(),
+      productName: firstLine?.productName || developmentDraft.productName.trim(),
+      status: developmentDraft.status,
+      sourceQuoteId: developmentDraft.sourceQuoteId.trim(),
+      sourceQuoteNo: developmentDraft.sourceQuoteNo.trim(),
+      lines: normalizedLines,
+      imageUrl: developmentDraft.imageUrl.trim(),
+      notes: developmentDraft.notes.trim(),
+    } satisfies DevelopmentRecord;
+
+    if (!draft.developmentNo || !draft.brand || !draft.customer || !draft.sourceQuoteId) {
+      setNotice(t("notice.developmentRequired"));
+      return;
+    }
+
+    setDevelopments((current) => (editingDevelopmentId ? current.map((item) => (item.id === editingDevelopmentId ? draft : item)) : [draft, ...current]));
+
+    try {
+      if (editingDevelopmentId) {
+        await apiUpdateDevelopment(draft);
+      } else {
+        await apiCreateDevelopment(draft);
+      }
+      await refreshRemoteData();
+      setNotice(t("notice.saved"));
+    } catch {
+      setNotice(t("notice.savedLocally"));
+    } finally {
+      closeModal();
+    }
+  }
+
+  async function removeDevelopment(development: DevelopmentRecord) {
+    const confirmed = window.confirm(`${t("confirm.deleteDevelopment")} ${development.developmentNo}?`);
+    if (!confirmed) return;
+
+    setDevelopments((current) => current.filter((item) => item.id !== development.id));
+
+    try {
+      await apiDeleteDevelopment(development.id);
+      await refreshRemoteData();
+      setNotice(t("notice.deleted"));
+    } catch {
+      setNotice(t("notice.deletedLocally"));
+    }
+  }
+
   async function submitPIDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedSizeDetails = piSizeDetails
@@ -1953,7 +2445,8 @@ function App() {
     }
   }
 
-  function generatePIFromQuote(quote: Quote) {
+function generatePIFromQuote(quote: Quote) {
+    const now = new Date().toISOString();
     const firstQuoteLine = quote.lines[0];
     const normalizedQuoteLines = quote.lines
       .filter((line) => line.productCode.trim() || line.productName.trim() || line.description.trim())
@@ -1961,7 +2454,7 @@ function App() {
         id: line.id ?? createLineItemId(),
         productCode: line.productCode.trim(),
         productName: line.productName.trim(),
-        supplier: products.find((item) => item.id === line.productCode.trim() || item.name === line.productName.trim())?.supplier ?? "",
+        supplier: products.find((item) => item.id === line.productCode.trim() || item.name === line.productName.trim())?.suppliers[0] ?? "",
         quantity: Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
         unitPrice: Number(line.price || 0) || getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1"),
       }));
@@ -1977,7 +2470,7 @@ function App() {
       deliveryDate: "",
       deliverTo: "",
       status: "Generated",
-      generatedAt: new Date().toISOString(),
+      generatedAt: now,
       generatedBy: "Jason",
       purchaseGeneratedAt: "",
       financeApprovedAt: "",
@@ -2003,7 +2496,7 @@ function App() {
               id: createLineItemId(),
               productCode: quote.productCode || firstLine?.productCode || "",
               productName: quote.productName || firstLine?.productName || "",
-              supplier: products.find((item) => item.id === quote.productCode || item.name === quote.productName || item.id === firstLine?.productCode || item.name === firstLine?.productName)?.supplier ?? "",
+              supplier: products.find((item) => item.id === quote.productCode || item.name === quote.productName || item.id === firstLine?.productCode || item.name === firstLine?.productName)?.suppliers[0] ?? "",
               quantity: Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
               unitPrice: getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1") || firstQuoteLine?.price || 0,
             },
@@ -2015,6 +2508,7 @@ function App() {
   }
 
   function generatePIFromOrder(order: Order) {
+    const now = new Date().toISOString();
     setEditingPIId(null);
     setPIDraft({
       ...emptyPIDraft,
@@ -2026,7 +2520,7 @@ function App() {
       deliveryDate: "",
       deliverTo: "",
       status: "Generated",
-      generatedAt: new Date().toISOString(),
+      generatedAt: now,
       generatedBy: "Jason",
       purchaseGeneratedAt: "",
       financeApprovedAt: "",
@@ -2049,7 +2543,7 @@ function App() {
         id: createLineItemId(),
         productCode: order.product,
         productName: order.product,
-        supplier: products.find((item) => item.id === order.product || item.name === order.product)?.supplier ?? "",
+        supplier: products.find((item) => item.id === order.product || item.name === order.product)?.suppliers[0] ?? "",
         quantity: 1,
         unitPrice: order.total,
       },
@@ -2169,15 +2663,27 @@ function App() {
       ...emptyPODraft,
       sourcePiId: sourcePi.id,
       customer: sourcePi.customer,
-    } : emptyPODraft);
+    } : { ...emptyPODraft });
     setNotice(null);
     setActiveModal("po");
+  }
+
+  function startCreateCraft() {
+    setEditingCraftId(null);
+    setCraftDraft({
+      ...emptyCraftDraft,
+      orderNo: `CRFT${Date.now().toString().slice(-9)}`,
+      makeDate: new Date().toISOString().slice(0, 10),
+    });
+    setNotice(null);
+    setActiveModal("craft");
   }
 
   function startEditPO(po: PORecord) {
     setEditingPoId(po.id);
     setPODraft({
       id: po.id,
+      poType: po.poType,
       poNo: po.poNo,
       sourcePiId: po.sourcePiId,
       date: po.date,
@@ -2201,13 +2707,85 @@ function App() {
       remarks: po.remarks,
       notes: po.notes,
       imageUrl: po.imageUrl,
+      // Craft fields
+      orderNo: po.orderNo,
+      maker: po.maker,
+      makeDate: po.makeDate,
+      styleNo: po.styleNo,
+      customerOrderNo: po.customerOrderNo,
+      craftProductName: po.craftProductName,
+      relatedOrderNo: po.relatedOrderNo,
+      sheetSize: po.sheetSize,
+      materialIn: po.materialIn,
+      upCount: po.upCount,
+      quantity: po.quantity,
+      remainder: po.remainder,
+      finishedQty: po.finishedQty,
+      packCount: po.packCount,
+      printMethod: po.printMethod,
+      proofType: po.proofType,
+      postProcess: po.postProcess,
+      craftNotes: po.craftNotes,
     });
     setNotice(null);
     setActiveModal("po");
   }
 
+  function startEditCraft(po: PORecord) {
+    setEditingCraftId(po.id);
+    setCraftDraft({
+      id: po.id,
+      poType: "craft",
+      poNo: po.poNo,
+      sourcePiId: "",
+      date: po.date,
+      vendor: po.vendor,
+      vendorAddress: po.vendorAddress,
+      vendorContact: po.vendorContact,
+      vendorEmail: po.vendorEmail,
+      vendorTel: po.vendorTel,
+      vendorFax: po.vendorFax,
+      customer: po.customer,
+      ourRefNo: po.ourRefNo,
+      deliveryDate: po.deliveryDate,
+      deliverTo: po.deliverTo,
+      status: po.status,
+      itemCode: po.itemCode,
+      description: po.description,
+      productType: po.productType,
+      size: po.size,
+      colors: po.colors,
+      finished: po.finished,
+      remarks: po.remarks,
+      notes: po.notes,
+      imageUrl: po.imageUrl,
+      // Craft fields
+      orderNo: po.orderNo,
+      maker: po.maker,
+      makeDate: po.makeDate,
+      styleNo: po.styleNo,
+      customerOrderNo: po.customerOrderNo,
+      craftProductName: po.craftProductName,
+      relatedOrderNo: po.relatedOrderNo,
+      sheetSize: po.sheetSize,
+      materialIn: po.materialIn,
+      upCount: po.upCount,
+      quantity: po.quantity,
+      remainder: po.remainder,
+      finishedQty: po.finishedQty,
+      packCount: po.packCount,
+      printMethod: po.printMethod,
+      proofType: po.proofType,
+      postProcess: po.postProcess,
+      craftNotes: po.craftNotes,
+    });
+    setNotice(null);
+    setActiveModal("craft");
+  }
+
   async function submitPODraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const now = new Date().toISOString();
     const draft = {
       id: editingPoId ?? createRowId("PO"),
       poNo: poDraft.poNo.trim() || createRowId("PO"),
@@ -2235,7 +2813,42 @@ function App() {
       packingRows: [],
       notes: poDraft.notes.trim(),
       imageUrl: poDraft.imageUrl.trim(),
+      poType: "purchase" as const,
+      orderNo: "",
+      maker: "",
+      makeDate: "",
+      styleNo: "",
+      customerOrderNo: "",
+      craftProductName: "",
+      relatedOrderNo: "",
+      sheetSize: "",
+      materialIn: "",
+      upCount: "",
+      quantity: 0,
+      remainder: 0,
+      finishedQty: 0,
+      packCount: "",
+      printMethod: [],
+      proofType: [],
+      postProcess: [],
+      craftNotes: "",
     } satisfies PORecord;
+
+    const linkedPi = draft.sourcePiId ? pis.find((item) => item.id === draft.sourcePiId || item.piNo === draft.sourcePiId) ?? null : null;
+    const nextPi = linkedPi
+      ? updatePITimeline(linkedPi, {
+          purchaseGeneratedAt: touchTimelineValue(linkedPi.purchaseGeneratedAt, now),
+          financeApprovedAt:
+            draft.status !== "Draft" ? touchTimelineValue(linkedPi.financeApprovedAt, now) : linkedPi.financeApprovedAt,
+          packingInfoGeneratedAt:
+            draft.status === "Sent" || draft.status === "Closed"
+              ? touchTimelineValue(linkedPi.packingInfoGeneratedAt, now)
+              : linkedPi.packingInfoGeneratedAt,
+          commercialInvoiceGeneratedAt: linkedPi.commercialInvoiceGeneratedAt,
+          paymentConfirmedAt:
+            draft.status === "Closed" ? touchTimelineValue(linkedPi.paymentConfirmedAt, now) : linkedPi.paymentConfirmedAt,
+        })
+      : null;
 
     if (!draft.poNo || !draft.customer) {
       setNotice(t("notice.poRequired"));
@@ -2246,6 +2859,91 @@ function App() {
 
     try {
       if (editingPoId) {
+        await apiUpdatePO(draft);
+      } else {
+        await apiCreatePO(draft);
+      }
+      let piSynced = false;
+      if (nextPi) {
+        try {
+          await apiUpdatePI(nextPi);
+          piSynced = true;
+        } catch {
+          piSynced = false;
+        }
+      }
+      await refreshRemoteData();
+      if (nextPi && !piSynced) {
+        setPIs((current) => current.map((item) => (item.id === nextPi.id ? nextPi : item)));
+      }
+      setNotice(t("notice.saved"));
+    } catch {
+      setNotice(t("notice.savedLocally"));
+    } finally {
+      closeModal();
+    }
+  }
+
+  async function submitCraftDraft(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const draft: PORecord = {
+      id: editingCraftId ?? createRowId("CRFT"),
+      poType: "craft",
+      poNo: craftDraft.poNo.trim() || craftDraft.orderNo || createRowId("CRFT"),
+      sourcePiId: "",
+      date: craftDraft.date,
+      vendor: craftDraft.vendor.trim(),
+      vendorAddress: craftDraft.vendorAddress.trim(),
+      vendorContact: craftDraft.vendorContact.trim(),
+      vendorEmail: craftDraft.vendorEmail.trim(),
+      vendorTel: craftDraft.vendorTel.trim(),
+      vendorFax: craftDraft.vendorFax.trim(),
+      customer: craftDraft.customer.trim(),
+      ourRefNo: "",
+      deliveryDate: craftDraft.deliveryDate,
+      deliverTo: "",
+      status: craftDraft.status,
+      itemCode: "",
+      description: "",
+      productType: "",
+      size: "",
+      colors: "",
+      finished: "",
+      remarks: "",
+      lines: [],
+      packingRows: [],
+      notes: craftDraft.notes.trim(),
+      imageUrl: "",
+      // Craft fields from form
+      orderNo: craftDraft.orderNo.trim(),
+      maker: craftDraft.maker.trim(),
+      makeDate: craftDraft.makeDate,
+      styleNo: craftDraft.styleNo.trim(),
+      customerOrderNo: craftDraft.customerOrderNo.trim(),
+      craftProductName: craftDraft.craftProductName.trim(),
+      relatedOrderNo: craftDraft.relatedOrderNo.trim(),
+      sheetSize: craftDraft.sheetSize.trim(),
+      materialIn: craftDraft.materialIn.trim(),
+      upCount: craftDraft.upCount.trim(),
+      quantity: Number(craftDraft.quantity) || 0,
+      remainder: Number(craftDraft.remainder) || 0,
+      finishedQty: Number(craftDraft.finishedQty) || 0,
+      packCount: craftDraft.packCount.trim(),
+      printMethod: craftDraft.printMethod,
+      proofType: craftDraft.proofType,
+      postProcess: craftDraft.postProcess,
+      craftNotes: craftDraft.craftNotes.trim(),
+    };
+
+    if (!draft.orderNo || !draft.customer) {
+      setNotice(t("notice.poRequired"));
+      return;
+    }
+
+    setPOs((current) => (editingCraftId ? current.map((item) => (item.id === editingCraftId ? draft : item)) : [draft, ...current]));
+
+    try {
+      if (editingCraftId) {
         await apiUpdatePO(draft);
       } else {
         await apiCreatePO(draft);
@@ -2331,6 +3029,14 @@ function App() {
       setNotice(t("notice.noLinkedPO"));
       return;
     }
+    const now = new Date().toISOString();
+    const nextPi = updatePITimeline(pi, {
+      commercialInvoiceGeneratedAt: touchTimelineValue(pi.commercialInvoiceGeneratedAt, now),
+    });
+    setPIs((current) => current.map((item) => (item.id === nextPi.id ? nextPi : item)));
+    apiUpdatePI(nextPi).catch(() => {
+      setPIs((current) => current.map((item) => (item.id === nextPi.id ? nextPi : item)));
+    });
     openCommercialInvoice(po.id);
   };
   const openPurchaseOrderFromPI = (pi: PIRecord) => {
@@ -2407,8 +3113,10 @@ function App() {
                     ? t("search.customers")
                     : currentPage === "suppliers"
                     ? t("search.suppliers")
-                      : currentPage === "quotes"
+                  : currentPage === "quotes"
                         ? t("search.quotes")
+                        : currentPage === "development"
+                          ? t("search.development")
                   : currentPage === "pis"
                     ? t("search.pis")
                     : currentPage === "po" || currentPage === "po-detail"
@@ -2491,6 +3199,27 @@ function App() {
             }
           />
           <Route
+            path="/brands/:brandId"
+            element={
+              <BrandDetailPage
+                locale={locale}
+                t={t}
+              />
+            }
+          />
+          <Route
+            path="/customers/:customerId"
+            element={
+              <CustomerDetailPage
+                locale={locale}
+                t={t}
+                customers={customers}
+                quotes={quotes}
+                pis={pis}
+              />
+            }
+          />
+          <Route
             path="/customers"
             element={
               <CustomersPage
@@ -2500,6 +3229,7 @@ function App() {
                 onStartCreate={startCreateCustomer}
                 onEditCustomer={startEditCustomer}
                 onDeleteCustomer={removeCustomer}
+                onViewCustomer={(customer) => navigate(`/customers/${encodeURIComponent(customer.id)}`)}
               />
             }
           />
@@ -2532,6 +3262,19 @@ function App() {
                 onPreviewPI={generatePIFromQuote}
                 quantityPreview={quotePreviewQty}
                 setQuantityPreview={setQuotePreviewQty}
+              />
+            }
+          />
+          <Route
+            path="/development"
+            element={
+              <DevelopmentPage
+                t={t}
+                developments={developments}
+                quotes={quotes}
+                onStartCreate={startCreateDevelopment}
+                onEditDevelopment={startEditDevelopment}
+                onDeleteDevelopment={removeDevelopment}
               />
             }
           />
@@ -2606,7 +3349,9 @@ function App() {
                 t={t}
                 pos={pos as PORecord[]}
                 onStartCreate={startCreatePO}
+                onStartCraft={startCreateCraft}
                 onEditPO={startEditPO}
+                onEditCraft={startEditCraft}
                 onDeletePO={removePO}
                 onPreviewPO={(po) => navigate(`/po/${encodeURIComponent(po.id)}`)}
               />
@@ -2670,14 +3415,6 @@ function App() {
                   />
                 </label>
                 <label>
-                  <span>{t("form.productSupplier")}</span>
-                  <input
-                    value={productDraft.supplier}
-                    onChange={(event) => setProductDraft({ ...productDraft, supplier: event.target.value })}
-                    placeholder={t("form.productSupplierPlaceholder")}
-                  />
-                </label>
-                <label>
                   <span>{t("table.category")}</span>
                   <select
                     value={productDraft.categoryKey}
@@ -2721,6 +3458,52 @@ function App() {
                   </select>
                 </label>
               </div>
+
+              <section className="editable-block">
+                <div className="editable-head">
+                  <div>
+                    <strong>{t("form.productSuppliers")}</strong>
+                    <p>{t("form.productSuppliersHelp")}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary-button tiny-button"
+                    onClick={() => setProductDraft((current) => ({ ...current, suppliers: [...current.suppliers, ""] }))}
+                  >
+                    <IconPlus size={16} strokeWidth={2} />
+                    {t("button.addProductSupplier")}
+                  </button>
+                </div>
+                <div className="editable-list">
+                  {productDraft.suppliers.map((supplier, index) => (
+                    <div className="editable-row" key={index}>
+                      <input
+                        value={supplier}
+                        onChange={(event) =>
+                          setProductDraft((current) => ({
+                            ...current,
+                            suppliers: current.suppliers.map((item, supplierIndex) => (supplierIndex === index ? event.target.value : item)),
+                          }))
+                        }
+                        placeholder={t("form.productSupplierPlaceholder")}
+                      />
+                      <button
+                        type="button"
+                        className="action-link delete"
+                        onClick={() =>
+                          setProductDraft((current) => ({
+                            ...current,
+                            suppliers: current.suppliers.length > 1 ? current.suppliers.filter((_, supplierIndex) => supplierIndex !== index) : [""],
+                          }))
+                        }
+                      >
+                        <IconTrash size={16} strokeWidth={2} />
+                        {t("action.delete")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
               <div className="product-image-panel">
                 <div className="product-image-preview">
@@ -3383,6 +4166,240 @@ function App() {
           </EditorModal>
         ) : null}
 
+        {activeModal === "development" ? (
+          <EditorModal className="quote-modal-card" title={editingDevelopmentId ? t("form.editDevelopment") : t("form.createDevelopment")} onClose={closeModal}>
+            <form className="modal-form quote-sheet-form" onSubmit={submitDevelopmentDraft}>
+              <div className="quote-preview-card quote-preview-wide">
+                <div>
+                  <strong>{t("table.developmentNo")}</strong>
+                  <p>{developmentDraft.developmentNo || "-"}</p>
+                </div>
+                <div>
+                  <strong>{t("form.developmentStatus")}</strong>
+                  <p>{t(`status.${developmentDraft.status}`)}</p>
+                </div>
+                <div>
+                  <strong>{t("form.developmentQuote")}</strong>
+                  <p>{developmentDraft.sourceQuoteNo || "-"}</p>
+                </div>
+                <div>
+                  <strong>{t("table.customer")}</strong>
+                  <p>{developmentDraft.customer || "-"}</p>
+                </div>
+              </div>
+
+              <section className="quote-header-panel">
+                <div className="quote-header-grid">
+                  <label>
+                    <span>{t("form.developmentNo")}</span>
+                    <input value={developmentDraft.developmentNo} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, developmentNo: event.target.value })} placeholder="DV2606001" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentDate")}</span>
+                    <input type="date" value={developmentDraft.date} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, date: event.target.value })} />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentModificationDate")}</span>
+                    <input type="date" value={developmentDraft.modificationDate} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, modificationDate: event.target.value })} />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentRegister")}</span>
+                    <input value={developmentDraft.register} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, register: event.target.value })} placeholder="朱佳毅" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentQuote")}</span>
+                    <select value={developmentDraft.sourceQuoteId} onChange={(event) => updateDevelopmentQuote(event.target.value)}>
+                      <option value="">{t("form.developmentQuote")}</option>
+                      {quotes.map((quote) => (
+                        <option key={quote.id} value={quote.id}>
+                          {quote.quoteNo || quote.id} · {quote.customer}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>{t("form.developmentBrand")}</span>
+                    <input value={developmentDraft.brand} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, brand: event.target.value })} placeholder="STONEY CLOVER LANE" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentCustomer")}</span>
+                    <input value={developmentDraft.customer} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, customer: event.target.value })} placeholder="GMS" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentLinkman")}</span>
+                    <input value={developmentDraft.linkman} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, linkman: event.target.value })} placeholder="Anly" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentSalesperson")}</span>
+                    <input value={developmentDraft.salesperson} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, salesperson: event.target.value })} placeholder="Jason" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentItemType")}</span>
+                    <input value={developmentDraft.itemType} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, itemType: event.target.value })} placeholder="STONEY CLOVER LANE 感恩卡、信封和贴纸" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentItem")}</span>
+                    <input value={developmentDraft.item} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, item: event.target.value })} placeholder="感恩卡 / 信封 / 贴纸" />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentImage")}</span>
+                    <input value={developmentDraft.imageUrl} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, imageUrl: event.target.value })} placeholder="https://..." />
+                  </label>
+                  <label>
+                    <span>{t("form.developmentStatus")}</span>
+                    <select value={developmentDraft.status} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, status: event.target.value as DevelopmentRecord["status"] })}>
+                      <option value="Draft">{t("status.Draft")}</option>
+                      <option value="In progress">{t("status.In progress")}</option>
+                      <option value="Confirmed">{t("status.Confirmed")}</option>
+                      <option value="Closed">{t("status.Closed")}</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+
+              <section className="quote-lines-panel" id="development-lines-panel">
+                <div className="editable-head">
+                  <div>
+                    <strong>{t("section.development")}</strong>
+                    <p>{t("development.linesHelp")}</p>
+                  </div>
+                  <button type="button" className="secondary-button tiny-button" onClick={() => setDevelopmentLines((current) => [...current, createDevelopmentLine()])}>
+                    <IconPlus size={16} strokeWidth={2} />
+                    {t("button.addDevelopment")}
+                  </button>
+                </div>
+
+                <div className="quote-lines-table">
+                  <div className="quote-lines-head">
+                    <span>{t("form.developmentLineImage")}</span>
+                    <span>{t("form.developmentLineProductCode")}</span>
+                    <span>{t("form.developmentLineProductName")}</span>
+                    <span>{t("form.developmentLineDescription")}</span>
+                    <span>{t("form.developmentLineLocked")}</span>
+                  </div>
+                  {developmentLines.map((line, index) => (
+                    <div className="quote-line-group" key={line.id ?? index}>
+                      <div className="quote-line-row">
+                        <label className="quote-line-check">
+                          <input type="checkbox" checked={Boolean(line.checked)} onChange={(event) => setDevelopmentLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, checked: event.target.checked } : row)))} />
+                          <span />
+                        </label>
+                        <label className="quote-line-image">
+                          {line.imageUrl ? <img src={line.imageUrl} alt={line.productName || line.productCode || "development line"} /> : <div className="quote-line-thumb placeholder"><IconPhoto size={18} strokeWidth={2} /></div>}
+                        </label>
+                        <div className="quote-line-item">
+                          <select value={getDevelopmentLineProductId(line)} onChange={(event) => updateDevelopmentLineWithProduct(index, event.target.value)}>
+                            <option value="">{t("form.lineSamplePlaceholder")}</option>
+                            {products.map((product) => (
+                              <option value={product.id} key={product.id}>
+                                {getProductLabel(product)}
+                              </option>
+                            ))}
+                          </select>
+                          <input value={line.productCode} onChange={(event) => setDevelopmentLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productCode: event.target.value } : row)))} placeholder={t("form.lineProductCode")} />
+                          <input value={line.productName} onChange={(event) => setDevelopmentLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productName: event.target.value } : row)))} placeholder={t("form.lineProductName")} />
+                        </div>
+                        <div className="quote-line-specs">
+                          <div className="quote-spec-readonly">
+                            {(Object.keys(quoteSpecFieldLabels) as QuoteSpecField[]).map((field) => {
+                              const value = line[quoteSpecValueKeys[field]];
+                              return value ? (
+                                <div key={field} className="quote-spec-chip">
+                                  <span className="spec-readonly-label">{quoteSpecFieldLabels[field]}:</span>
+                                  <span>{value}</span>
+                                </div>
+                              ) : null;
+                            })}
+                          </div>
+                          <div className="quote-spec-editor">
+                            <label>
+                              <span>{quoteSpecFieldLabels.type}</span>
+                              <select value={line.typeValue ?? ""} onChange={(event) => setDevelopmentLineSpecValue(index, "type", event.target.value)}>
+                                <option value="">{quoteSpecFieldLabels.type}</option>
+                                {quoteSpecOptions.type.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              <span>{quoteSpecFieldLabels.size}</span>
+                              <select value={line.sizeValue ?? ""} onChange={(event) => setDevelopmentLineSpecValue(index, "size", event.target.value)}>
+                                <option value="">{quoteSpecFieldLabels.size}</option>
+                                {quoteSpecOptions.size.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              <span>{quoteSpecFieldLabels.color}</span>
+                              <select value={line.colorValue ?? ""} onChange={(event) => setDevelopmentLineSpecValue(index, "color", event.target.value)}>
+                                <option value="">{quoteSpecFieldLabels.color}</option>
+                                {quoteSpecOptions.color.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              <span>{quoteSpecFieldLabels.finished}</span>
+                              <select value={line.finishedValue ?? ""} onChange={(event) => setDevelopmentLineSpecValue(index, "finished", event.target.value)}>
+                                <option value="">{quoteSpecFieldLabels.finished}</option>
+                                {quoteSpecOptions.finished.map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="quote-line-remarks">
+                              <span>{t("pi.remarks")}</span>
+                              <textarea rows={3} value={line.remarksValue ?? ""} onChange={(event) => setDevelopmentLineRemarks(index, event.target.value)} />
+                            </label>
+                          </div>
+                        </div>
+                        <label className="quote-line-cost">
+                          <span>{t("form.developmentLineLocked")}</span>
+                          <button type="button" className={`toggle-btn${line.specLocked ? " active" : ""}`} onClick={() => setDevelopmentLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, specLocked: !row.specLocked } : row)))}>
+                            {line.specLocked ? t("form.specLock") : t("form.specUnlock")}
+                          </button>
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <div className="quote-toolbar">
+                <label className="inline-field quote-item-field">
+                  <span>{t("development.sourceHelp")}</span>
+                  <input value={developmentDraft.sourceQuoteNo || developmentDraft.sourceQuoteId} readOnly placeholder={t("form.developmentQuote")} />
+                </label>
+              </div>
+
+              <div className="quote-tier-panel">
+                <label>
+                  <span>{t("form.developmentNotes")}</span>
+                  <textarea rows={4} value={developmentDraft.notes} onChange={(event) => setDevelopmentDraft({ ...developmentDraft, notes: event.target.value })} />
+                </label>
+              </div>
+
+              <div className="form-actions">
+                <button className="secondary-button" type="button" onClick={closeModal}>
+                  {t("button.cancel")}
+                </button>
+                <button className="primary-button" type="submit">
+                  {editingDevelopmentId ? t("button.save") : t("button.create")}
+                </button>
+              </div>
+            </form>
+          </EditorModal>
+        ) : null}
+
         {activeModal === "pi" ? (
           <EditorModal className="pi-modal-card" title={editingPIId ? t("form.editPI") : t("form.createPI")} onClose={closeModal}>
             <form className="modal-form pi-sheet-form" onSubmit={submitPIDraft}>
@@ -3520,23 +4537,33 @@ function App() {
                     <strong>{t("pi.sizeTitle")}</strong>
                     <p>{t("pi.sizeSubtitle")}</p>
                   </div>
-                  <button type="button" className="secondary-button tiny-button" onClick={() => setPISizeDetails((current) => [...current, { id: createLineItemId(), size: "", quantity: 0 }])}>
-                    <IconPlus size={16} strokeWidth={2} />
-                    {t("button.addPISizeRow")}
-                  </button>
                 </div>
-                <div className="editable-list pi-size-list">
-                  {piSizeDetails.map((line, index) => (
-                    <div className="editable-row pi-size-row" key={line.id ?? index}>
-                      <input value={line.size} onChange={(event) => setPISizeDetails((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, size: event.target.value } : row)))} placeholder="14-36" />
-                      <input type="number" min="0" value={line.quantity} onChange={(event) => setPISizeDetails((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, quantity: Number(event.target.value) } : row)))} placeholder="20000" />
-                      <button type="button" className="action-link delete" onClick={() => setPISizeDetails((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
-                        <IconTrash size={16} strokeWidth={2} />
-                        {t("action.delete")}
-                      </button>
+                {piSizeDetails.map((line, index) => (
+                  <div className="pi-size" key={line.id ?? index}>
+                    <div className="pi-size-card-header">
+                      <strong>Size #{index + 1}</strong>
+                      <div className="pi-size-card-actions">
+                        <button type="button" className="delete" onClick={() => setPISizeDetails((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
+                          <IconTrash size={16} strokeWidth={2} />
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                    <div className="pi-size-card-body">
+                      <label>
+                        <span>{t("pi.size")}</span>
+                        <input value={line.size} onChange={(event) => setPISizeDetails((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, size: event.target.value } : row)))} placeholder="14-36" />
+                      </label>
+                      <label>
+                        <span>{t("pi.quantity")}</span>
+                        <input type="number" min="0" value={line.quantity} onChange={(event) => setPISizeDetails((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, quantity: Number(event.target.value) } : row)))} placeholder="20000" />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className="pi-add-line-btn" onClick={() => setPISizeDetails((current) => [...current, { id: createLineItemId(), size: "", quantity: 0 }])}>
+                  <IconPlus size={16} strokeWidth={2} />
+                  {t("button.addPISizeRow")}
+                </button>
               </section>
 
               <section className="pi-line-panel">
@@ -3545,34 +4572,57 @@ function App() {
                     <strong>{t("table.piLines")}</strong>
                     <p>{t("pi.lineSubtitle")}</p>
                   </div>
-                  <button type="button" className="secondary-button tiny-button" onClick={() => setPILines((current) => [...current, { id: createLineItemId(), productCode: "", productName: "", supplier: "", quantity: 1, unitPrice: 0 }])}>
-                    <IconPlus size={16} strokeWidth={2} />
-                    {t("button.addPILine")}
-                  </button>
                 </div>
-                <div className="editable-list">
-                  {piLines.map((line, index) => (
-                    <div className="editable-row pi-row" key={line.id ?? index}>
-                      <select value={getPILineProductId(line)} onChange={(event) => updatePILineWithProduct(index, event.target.value)}>
-                        <option value="">{t("form.lineSamplePlaceholder")}</option>
-                        {products.map((product) => (
-                          <option key={product.id} value={product.id}>
-                            {getProductLabel(product)}
-                          </option>
-                        ))}
-                      </select>
-                      <input value={line.supplier} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, supplier: event.target.value } : row)))} placeholder={t("form.lineSupplier")} />
-                      <input value={line.productCode} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productCode: event.target.value } : row)))} placeholder={t("form.lineProductCode")} />
-                      <input value={line.productName} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productName: event.target.value } : row)))} placeholder={t("form.lineProductName")} />
-                      <input type="number" min="0" value={line.quantity} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, quantity: Number(event.target.value) } : row)))} placeholder={t("form.lineQuantity")} />
-                      <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, unitPrice: Number(event.target.value) } : row)))} placeholder={t("form.lineUnitPrice")} />
-                      <button type="button" className="action-link delete" onClick={() => setPILines((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
-                        <IconTrash size={16} strokeWidth={2} />
-                        {t("action.delete")}
-                      </button>
+                {piLines.map((line, index) => (
+                  <div className="pi-line-card" key={line.id ?? index}>
+                    <div className="pi-line-card-header">
+                      <strong>Line #{index + 1}</strong>
+                      <div className="pi-line-card-actions">
+                        <button type="button" className="delete" onClick={() => setPILines((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
+                          <IconTrash size={16} strokeWidth={2} />
+                          {t("action.delete")}
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                    <div className="pi-line-card-body">
+                      <label className="pi-line-full">
+                        <span>{t("form.lineProduct")}</span>
+                        <select value={getPILineProductId(line)} onChange={(event) => updatePILineWithProduct(index, event.target.value)}>
+                          <option value="">{t("form.lineSamplePlaceholder")}</option>
+                          {products.map((product) => (
+                            <option key={product.id} value={product.id}>
+                              {getProductLabel(product)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        <span>{t("form.lineSupplier")}</span>
+                        <input value={line.supplier} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, supplier: event.target.value } : row)))} placeholder={t("form.lineSupplier")} />
+                      </label>
+                      <label>
+                        <span>{t("form.lineProductCode")}</span>
+                        <input value={line.productCode} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productCode: event.target.value } : row)))} placeholder={t("form.lineProductCode")} />
+                      </label>
+                      <label className="pi-line-full">
+                        <span>{t("form.lineProductName")}</span>
+                        <input value={line.productName} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productName: event.target.value } : row)))} placeholder={t("form.lineProductName")} />
+                      </label>
+                      <label>
+                        <span>{t("form.lineQuantity")}</span>
+                        <input type="number" min="0" value={line.quantity} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, quantity: Number(event.target.value) } : row)))} placeholder={t("form.lineQuantity")} />
+                      </label>
+                      <label>
+                        <span>{t("form.lineUnitPrice")}</span>
+                        <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, unitPrice: Number(event.target.value) } : row)))} placeholder={t("form.lineUnitPrice")} />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className="pi-add-line-btn" onClick={() => setPILines((current) => [...current, { id: createLineItemId(), productCode: "", productName: "", supplier: "", quantity: 1, unitPrice: 0 }])}>
+                  <IconPlus size={16} strokeWidth={2} />
+                  {t("button.addPILine")}
+                </button>
               </section>
 
               <div className="pi-footer-grid">
@@ -3593,56 +4643,7 @@ function App() {
                     <p>{t("pi.timelineSubtitle")}</p>
                   </div>
                 </div>
-                <div className="pi-timeline-grid">
-                  <label>
-                    <span>{t("pi.timeline.opened")}</span>
-                    <input
-                      type="datetime-local"
-                      value={toDateTimeLocalValue(piDraft.generatedAt)}
-                      onChange={(event) => setPIDraft({ ...piDraft, generatedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("pi.timeline.purchase")}</span>
-                    <input
-                      type="datetime-local"
-                      value={toDateTimeLocalValue(piDraft.purchaseGeneratedAt)}
-                      onChange={(event) => setPIDraft({ ...piDraft, purchaseGeneratedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("pi.timeline.finance")}</span>
-                    <input
-                      type="datetime-local"
-                      value={toDateTimeLocalValue(piDraft.financeApprovedAt)}
-                      onChange={(event) => setPIDraft({ ...piDraft, financeApprovedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("pi.timeline.packing")}</span>
-                    <input
-                      type="datetime-local"
-                      value={toDateTimeLocalValue(piDraft.packingInfoGeneratedAt)}
-                      onChange={(event) => setPIDraft({ ...piDraft, packingInfoGeneratedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("pi.timeline.commercial")}</span>
-                    <input
-                      type="datetime-local"
-                      value={toDateTimeLocalValue(piDraft.commercialInvoiceGeneratedAt)}
-                      onChange={(event) => setPIDraft({ ...piDraft, commercialInvoiceGeneratedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("pi.timeline.payment")}</span>
-                    <input
-                      type="datetime-local"
-                      value={toDateTimeLocalValue(piDraft.paymentConfirmedAt)}
-                      onChange={(event) => setPIDraft({ ...piDraft, paymentConfirmedAt: event.target.value ? new Date(event.target.value).toISOString() : "" })}
-                    />
-                  </label>
-                </div>
+                <p className="pi-timeline-note">{t("pi.timelineAutoNote")}</p>
               </section>
 
               <div className="form-actions">
@@ -3868,6 +4869,102 @@ function App() {
             </form>
           </EditorModal>
         ) : null}
+
+        {activeModal === "craft" ? (
+          <EditorModal title={editingCraftId ? t("form.editPO") : t("form.createPO")} onClose={closeModal}>
+            <form className="modal-form" onSubmit={submitCraftDraft}>
+              <div className="form-grid">
+                <label><span>{t("craft.orderNo")}</span><input value={craftDraft.orderNo} onChange={(e) => setCraftDraft({ ...craftDraft, orderNo: e.target.value })} placeholder="260605006" /></label>
+                <label><span>{t("table.customer")}</span><input value={craftDraft.customer} onChange={(e) => setCraftDraft({ ...craftDraft, customer: e.target.value })} placeholder="022" /></label>
+                <label><span>{t("form.piDeliveryDate")}</span><input type="date" value={craftDraft.deliveryDate} onChange={(e) => setCraftDraft({ ...craftDraft, deliveryDate: e.target.value })} /></label>
+                <label>
+                  <span>{t("table.status")}</span>
+                  <select value={craftDraft.status} onChange={(e) => setCraftDraft({ ...craftDraft, status: e.target.value as PORecord["status"] })}>
+                    <option value="Draft">{t("status.Draft")}</option><option value="Confirmed">{t("status.Confirmed")}</option><option value="Sent">{t("status.Sent")}</option><option value="Closed">{t("status.Closed")}</option>
+                  </select>
+                </label>
+                <label><span>{t("craft.maker")}</span><input value={craftDraft.maker} onChange={(e) => setCraftDraft({ ...craftDraft, maker: e.target.value })} placeholder="FC007" /></label>
+                <label><span>{t("craft.makeDate")}</span><input type="date" value={craftDraft.makeDate} onChange={(e) => setCraftDraft({ ...craftDraft, makeDate: e.target.value })} /></label>
+
+                {/* 款号信息 */}
+                <label><span>{t("craft.styleNo")}</span><input value={craftDraft.styleNo} onChange={(e) => setCraftDraft({ ...craftDraft, styleNo: e.target.value })} placeholder="SKI DEV 挂牌" /></label>
+                <label><span>{t("craft.customerOrderNo")}</span><input value={craftDraft.customerOrderNo} onChange={(e) => setCraftDraft({ ...craftDraft, customerOrderNo: e.target.value })} /></label>
+                <label><span>{t("craft.productName")}</span><input value={craftDraft.craftProductName} onChange={(e) => setCraftDraft({ ...craftDraft, craftProductName: e.target.value })} placeholder="250g双铜 标规" /></label>
+                <label><span>{t("craft.relatedOrderNo")}</span><input value={craftDraft.relatedOrderNo} onChange={(e) => setCraftDraft({ ...craftDraft, relatedOrderNo: e.target.value })} placeholder="26006882" /></label>
+
+                {/* 规格 */}
+                <label><span>{t("craft.sheetSize")}</span><input value={craftDraft.sheetSize} onChange={(e) => setCraftDraft({ ...craftDraft, sheetSize: e.target.value })} placeholder="230 * 325" /></label>
+                <label><span>{t("craft.materialIn")}</span><input value={craftDraft.materialIn} onChange={(e) => setCraftDraft({ ...craftDraft, materialIn: e.target.value })} placeholder="35" /></label>
+                <label><span>{t("craft.upCount")}</span><input value={craftDraft.upCount} onChange={(e) => setCraftDraft({ ...craftDraft, upCount: e.target.value })} placeholder="9" /></label>
+
+                {/* 数量 */}
+                <label><span>{t("craft.quantity")}</span><input type="number" min="0" value={craftDraft.quantity || ""} onChange={(e) => setCraftDraft({ ...craftDraft, quantity: Number(e.target.value) || 0 })} placeholder="315" /></label>
+                <label><span>{t("craft.remainder")}</span><input type="number" min="0" value={craftDraft.remainder || ""} onChange={(e) => setCraftDraft({ ...craftDraft, remainder: Number(e.target.value) || 0 })} placeholder="200" /></label>
+                <label><span>{t("craft.finishedQty")}</span><input type="number" min="0" value={craftDraft.finishedQty || ""} onChange={(e) => setCraftDraft({ ...craftDraft, finishedQty: Number(e.target.value) || 0 })} placeholder="115" /></label>
+                <label><span>{t("craft.packCount")}</span><input value={craftDraft.packCount} onChange={(e) => setCraftDraft({ ...craftDraft, packCount: e.target.value })} /></label>
+
+                {/* 印刷方式 - 多选 */}
+                <label className="full-span">
+                  <span>{t("craft.printMethod")}</span>
+                  <div className="craft-check-group">
+                    {(["single_side", "double_side", "work_and_turn", "work_and_tumble"] as PrintMethod[]).map((m) => (
+                      <label key={m} className="craft-check-item">
+                        <input type="checkbox" checked={craftDraft.printMethod.includes(m)} onChange={(e) => {
+                          if (e.target.checked) setCraftDraft({ ...craftDraft, printMethod: [...craftDraft.printMethod, m] });
+                          else setCraftDraft({ ...craftDraft, printMethod: craftDraft.printMethod.filter((x) => x !== m) });
+                        }} />
+                        <span>{t(`craft.print${m.charAt(0).toUpperCase() + m.slice(1).replace(/_(.)/g, (_, c) => c.toUpperCase())}`)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </label>
+
+                {/* 看样类型 - 多选 */}
+                <label className="full-span">
+                  <span>{t("craft.proofType")}</span>
+                  <div className="craft-check-group">
+                    {(["sample", "ps_plate", "ctp_plate"] as ProofType[]).map((m) => (
+                      <label key={m} className="craft-check-item">
+                        <input type="checkbox" checked={craftDraft.proofType.includes(m)} onChange={(e) => {
+                          if (e.target.checked) setCraftDraft({ ...craftDraft, proofType: [...craftDraft.proofType, m] });
+                          else setCraftDraft({ ...craftDraft, proofType: craftDraft.proofType.filter((x) => x !== m) });
+                        }} />
+                        <span>{t(`craft.proof${m.charAt(0).toUpperCase() + m.slice(1).replace(/_(.)/g, (_, c) => c.toUpperCase())}`)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </label>
+
+                {/* 后道要求 - 多选 */}
+                <label className="full-span">
+                  <span>{t("craft.postProcess")}</span>
+                  <div className="craft-post-grid">
+                    {(["printing", "laminating", "mounting", "die_cutting", "uv_coating"] as PostProcess[]).map((m) => (
+                      <label key={m} className="craft-post-item">
+                        <input type="checkbox" checked={craftDraft.postProcess.includes(m)} onChange={(e) => {
+                          if (e.target.checked) setCraftDraft({ ...craftDraft, postProcess: [...craftDraft.postProcess, m] });
+                          else setCraftDraft({ ...craftDraft, postProcess: craftDraft.postProcess.filter((x) => x !== m) });
+                        }} />
+                        <span>{t(`craft.post${m.charAt(0).toUpperCase() + m.slice(1).replace(/_(.)/g, (_, c) => c.toUpperCase())}`)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </label>
+
+                {/* 备注 */}
+                <label className="full-span">
+                  <span>{t("craft.notes")}</span>
+                  <textarea rows={3} value={craftDraft.craftNotes} onChange={(e) => setCraftDraft({ ...craftDraft, craftNotes: e.target.value })} placeholder="单面四色印 覆哑膜 轻刀裱 logo上UV" />
+                </label>
+              </div>
+
+              <div className="form-actions">
+                <button className="secondary-button" type="button" onClick={closeModal}>{t("button.cancel")}</button>
+                <button className="primary-button" type="submit">{editingCraftId ? t("button.save") : t("button.create")}</button>
+              </div>
+            </form>
+          </EditorModal>
+        ) : null}
       </main>
     </div>
   );
@@ -3960,7 +5057,7 @@ function DashboardPage({
           renderProductThumb(item, item.name),
           item.id,
           item.name,
-          item.supplier || "-",
+          getProductSupplierLabel(item),
           t(`category.${item.categoryKey}`),
           formatMoney(item.price, locale),
           String(item.stock),
@@ -4079,7 +5176,9 @@ function BrandsPage({
           minWidth={1360}
           rows={brands.map((item) => [
             item.id,
-            item.name,
+            <Link key={`${item.id}-name`} to={`/brands/${encodeURIComponent(item.id)}`} className="table-link">
+              {item.name}
+            </Link>,
             item.code,
             item.customer,
             item.supplier,
@@ -4094,11 +5193,126 @@ function BrandsPage({
   );
 }
 
+function BrandDetailPage({
+  locale,
+  t,
+}: {
+  locale: Locale;
+  t: (key: string) => string;
+}) {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [brand, setBrand] = useState<Brand | null>(null);
+  const [stats, setStats] = useState<{ quotes: number; developments: number; pis: number; pos: number } | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    setLoading(true);
+    setError("");
+    apiGetBrandDetail(id)
+      .then((res) => {
+        if (res.ok && res.brand) {
+          setBrand(res.brand);
+          setStats(res.stats ?? null);
+        } else {
+          setError(res.message ?? "Brand not found");
+        }
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) return <div className="page-stack"><p>{t("status.loading")}</p></div>;
+  if (error) return <div className="page-stack"><p className="text-danger">{error}</p><button className="secondary-button" onClick={() => navigate("/brands")}>{t("button.back")}</button></div>;
+  if (!brand) return null;
+
+  const statCards = stats ? [
+    { label: t("section.quotes"), value: stats.quotes, color: "#6366f1" },
+    { label: t("section.development"), value: stats.developments, color: "#f59e0b" },
+    { label: t("section.pis"), value: stats.pis, color: "#10b981" },
+    { label: t("section.po"), value: stats.pos, color: "#3b82f6" },
+  ] : [];
+
+  return (
+    <div className="page-stack">
+      <SectionShell
+        title={brand.name}
+        action={
+          <div className="section-actions">
+            <button className="secondary-button" type="button" onClick={() => navigate("/brands")}>
+              <IconChevronLeft size={18} strokeWidth={2} />
+              {t("button.back")}
+            </button>
+          </div>
+        }
+      >
+        <div className="detail-grid">
+          <div className="detail-section">
+            <h3 className="detail-section-title">{t("form.brandInfo")}</h3>
+            <div className="detail-fields">
+              <div className="detail-field">
+                <span className="detail-label">{t("table.brandId")}</span>
+                <span className="detail-value">{brand.id}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandName")}</span>
+                <span className="detail-value">{brand.name}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandCode")}</span>
+                <span className="detail-value">{brand.code}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandCustomer")}</span>
+                <span className="detail-value">{brand.customer}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandSupplier")}</span>
+                <span className="detail-value">{brand.supplier}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandCountry")}</span>
+                <span className="detail-value">{brand.country}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandStatus")}</span>
+                <span className={`status-pill status-${brand.status.toLowerCase()}`}>{t(`status.${brand.status}`)}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandOwner")}</span>
+                <span className="detail-value">{brand.owner}</span>
+              </div>
+              <div className="detail-field">
+                <span className="detail-label">{t("form.brandNotes")}</span>
+                <span className="detail-value">{brand.notes}</span>
+              </div>
+            </div>
+          </div>
+          <div className="detail-section">
+            <h3 className="detail-section-title">{t("section.statistics")}</h3>
+            <div className="stats-grid">
+              {statCards.map((card) => (
+                <div key={card.label} className="stat-card" style={{ borderTopColor: card.color }}>
+                  <div className="stat-value" style={{ color: card.color }}>{card.value}</div>
+                  <div className="stat-label">{card.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </SectionShell>
+    </div>
+  );
+}
+
 function CustomersPage({
   locale,
   t,
   customers,
   onStartCreate,
+  onViewCustomer,
   onEditCustomer,
   onDeleteCustomer,
 }: {
@@ -4106,6 +5320,7 @@ function CustomersPage({
   t: (key: string) => string;
   customers: Customer[];
   onStartCreate: () => void;
+  onViewCustomer: (customer: Customer) => void;
   onEditCustomer: (customer: Customer) => void;
   onDeleteCustomer: (customer: Customer) => void;
 }) {
@@ -4124,7 +5339,7 @@ function CustomersPage({
           columns={[t("table.customerId"), t("table.customerName"), t("table.customerCode"), t("table.country"), t("table.contact"), t("table.phone"), t("table.email"), t("table.address"), t("table.status"), t("table.notes"), t("table.actions")]}
           rows={customers.map((item) => [
             item.id,
-            item.name,
+            <button type="button" className="link-button" onClick={() => onViewCustomer(item)} key={`${item.id}-name`}>{item.name}</button>,
             item.code,
             item.country,
             item.contact,
@@ -4135,7 +5350,7 @@ function CustomersPage({
               {t(`status.${item.status}`)}
             </span>,
             item.notes,
-            <TableActions key={`${item.id}-actions`} t={t} onEdit={() => onEditCustomer(item)} onDelete={() => onDeleteCustomer(item)} />,
+            <TableActions key={`${item.id}-actions`} t={t} onView={() => onViewCustomer(item)} onEdit={() => onEditCustomer(item)} onDelete={() => onDeleteCustomer(item)} />,
           ])}
         />
       </SectionShell>
@@ -4302,6 +5517,86 @@ function QuotesPage({
             <p>报价图片可展示产品与附件内容，方便和旧系统一致。</p>
           </div>
         </div>
+      </SectionShell>
+    </div>
+  );
+}
+
+function DevelopmentPage({
+  t,
+  developments,
+  quotes,
+  onStartCreate,
+  onEditDevelopment,
+  onDeleteDevelopment,
+}: {
+  t: (key: string) => string;
+  developments: DevelopmentRecord[];
+  quotes: Quote[];
+  onStartCreate: (quote?: Quote) => void;
+  onEditDevelopment: (development: DevelopmentRecord) => void;
+  onDeleteDevelopment: (development: DevelopmentRecord) => void;
+}) {
+  return (
+    <div className="page-stack">
+      <SectionShell
+        title={t("section.development")}
+        action={
+          <button className="primary-button" type="button" onClick={() => onStartCreate()}>
+            <IconPlus size={18} strokeWidth={2} />
+            {t("button.addDevelopment")}
+          </button>
+        }
+      >
+        <div className="pi-shortcuts">
+          <div className="shortcut-group">
+            <strong>{t("button.generateDevelopmentFromQuote")}</strong>
+            <div className="shortcut-list">
+              {quotes.slice(0, 3).map((quote) => (
+                <button key={quote.id} type="button" className="pill-button" onClick={() => onStartCreate(quote)}>
+                  {quote.quoteNo || quote.id} · {quote.productName}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <Table
+          columns={[t("table.developmentNo"), t("table.developmentQuote"), t("table.customer"), t("table.developmentItem"), t("table.status"), t("table.actions")]}
+          rows={developments.map((item) => {
+            const firstLine = item.lines[0];
+            const linkedQuote = quotes.find((quote) => quote.id === item.sourceQuoteId || quote.quoteNo === item.sourceQuoteNo) ?? null;
+            return [
+              item.developmentNo,
+              <div key={`${item.id}-quote`}>
+                <strong>{item.sourceQuoteNo || linkedQuote?.quoteNo || "-"}</strong>
+                <p>{linkedQuote?.brand || item.brand || "-"}</p>
+              </div>,
+              item.customer,
+              <div className="quote-product-cell" key={`${item.id}-item`}>
+                {firstLine?.imageUrl || item.imageUrl ? (
+                  <img src={firstLine?.imageUrl || item.imageUrl} alt={firstLine?.productName || item.productName} className="quote-thumb" />
+                ) : (
+                  <span className="quote-thumb placeholder">
+                    <IconPhoto size={18} strokeWidth={2} />
+                  </span>
+                )}
+                <div>
+                  <strong>{firstLine?.productName || item.productName}</strong>
+                  <p>{firstLine?.productCode || item.productCode}</p>
+                </div>
+              </div>,
+              <span className={`status-pill status-${item.status.toLowerCase()}`} key={`${item.id}-status`}>
+                {t(`status.${item.status}`)}
+              </span>,
+              <TableActions
+                key={`${item.id}-actions`}
+                t={t}
+                onEdit={() => onEditDevelopment(item)}
+                onDelete={() => onDeleteDevelopment(item)}
+              />,
+            ];
+          })}
+        />
       </SectionShell>
     </div>
   );
@@ -4639,7 +5934,9 @@ function PurchaseOrderPage({
   t,
   pos,
   onStartCreate,
+  onStartCraft,
   onEditPO,
+  onEditCraft,
   onDeletePO,
   onPreviewPO,
 }: {
@@ -4647,7 +5944,9 @@ function PurchaseOrderPage({
   t: (key: string) => string;
   pos: PORecord[];
   onStartCreate: () => void;
+  onStartCraft: () => void;
   onEditPO: (po: PORecord) => void;
+  onEditCraft: (po: PORecord) => void;
   onDeletePO: (po: PORecord) => void;
   onPreviewPO: (po: PORecord) => void;
 }) {
@@ -4656,21 +5955,28 @@ function PurchaseOrderPage({
       <SectionShell
         title={t("po.listTitle")}
         action={
-          <button className="primary-button" type="button" onClick={onStartCreate}>
-            <IconPlus size={18} strokeWidth={2} />
-            {t("button.addPO")}
-          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button className="primary-button" type="button" onClick={onStartCreate}>
+              <IconPlus size={18} strokeWidth={2} />
+              {t("button.addPurchase")}
+            </button>
+            <button className="secondary-button" type="button" onClick={onStartCraft} style={{ background: "#e8f5e9", color: "#2e7d32", border: "1px solid #a5d6a7" }}>
+              <IconPlus size={18} strokeWidth={2} />
+              {t("button.addCraft")}
+            </button>
+          </div>
         }
       >
         <Table
-          columns={[t("table.poNo"), t("table.poVendor"), t("table.poRefNo"), t("table.customer"), t("table.poDate"), t("table.piDeliveryDate"), t("table.status"), t("table.actions")]}
+          columns={[t("table.poType"), t("table.poNo"), t("table.poVendor"), t("table.customer"), t("table.poDate"), t("table.status"), t("table.actions")]}
           rows={pos.map((item) => [
+            <span key={`${item.id}-type`} className={`status-pill status-${item.poType === "craft" ? "confirmed" : "draft"}`}>
+              {item.poType === "craft" ? t("po.typeCraft") : t("po.typePurchase")}
+            </span>,
             item.poNo,
-            item.vendor,
-            item.ourRefNo || "-",
-            item.customer,
+            item.vendor || "-",
+            item.customer || "-",
             item.date,
-            item.deliveryDate || "-",
             <span className={`status-pill status-${item.status.toLowerCase()}`} key={`${item.id}-status`}>
               {t(`status.${item.status}`)}
             </span>,
@@ -4683,7 +5989,7 @@ function PurchaseOrderPage({
                   {t("button.previewPO")}
                 </button>
               }
-              onEdit={() => onEditPO(item)}
+              onEdit={() => item.poType === "craft" ? onEditCraft(item) : onEditPO(item)}
               onDelete={() => onDeletePO(item)}
             />,
           ])}
@@ -4722,6 +6028,180 @@ function PoDetailPage({
             {t("button.back")}
           </button>
         </SectionShell>
+      </div>
+    );
+  }
+
+  // Render craft sheet for craft type POs
+  if (po.poType === "craft") {
+    return (
+      <div className="page-stack craft-page">
+        <SectionShell
+          title={t("craft.detailTitle")}
+          action={
+            <div className="section-actions no-print">
+              <button className="secondary-button" type="button" onClick={() => navigate("/po")}>
+                <IconChevronLeft size={18} strokeWidth={2} />
+                {t("button.back")}
+              </button>
+              <button className="primary-button" type="button" onClick={() => window.print()}>
+                <IconDownload size={18} strokeWidth={2} />
+                {t("button.exportPdf")}
+              </button>
+            </div>
+          }
+        >
+          <p className="no-print">{t("craft.previewSubtitle")}</p>
+        </SectionShell>
+
+        <article className="craft-sheet">
+          {/* Header: Company name + barcode */}
+          <header className="craft-header">
+            <h1>{t("craft.companyName")}</h1>
+          </header>
+          <div className="craft-barcode">
+            <div className="craft-barcode-inner" title={`Barcode: ${po.orderNo || po.poNo}`} />
+          </div>
+
+          {/* Main table */}
+          <table className="craft-table">
+            <tbody>
+              {/* Row 1: 订单编号, 客户, 交货日期 */}
+              <tr>
+                <th>{t("craft.orderNo")}</th>
+                <td className="craft-value">{po.orderNo || po.poNo || "-"}</td>
+                <th>{t("table.customer")}</th>
+                <td className="craft-value">{po.customer || "-"}</td>
+                <th>{t("form.piDeliveryDate")}</th>
+                <td className="craft-value">{po.deliveryDate || "-"}</td>
+              </tr>
+              {/* Row 2: 订单状态, 制单人, 制单日期 */}
+              <tr>
+                <th>{t("table.status")}</th>
+                <td className="craft-value"><span className={`status-pill status-${po.status.toLowerCase()}`}>{t(`status.${po.status}`)}</span></td>
+                <th>{t("craft.maker")}</th>
+                <td className="craft-value">{po.maker || "-"}</td>
+                <th>{t("craft.makeDate")}</th>
+                <td className="craft-value">{po.makeDate || "-"}</td>
+              </tr>
+              {/* Row 3: 款号, 客户单号 */}
+              <tr>
+                <th>{t("craft.styleNo")}</th>
+                <td colSpan={2} className="craft-value">{po.styleNo || "-"}</td>
+                <th>{t("craft.customerOrderNo")}</th>
+                <td colSpan={2} className="craft-value">{po.customerOrderNo || "-"}</td>
+              </tr>
+              {/* Row 4: 品名, 订单号 */}
+              <tr>
+                <th>{t("craft.productName")}</th>
+                <td colSpan={2} className="craft-value">{po.craftProductName || "-"}</td>
+                <th>{t("craft.relatedOrderNo")}</th>
+                <td colSpan={2} className="craft-value">{po.relatedOrderNo || "-"}</td>
+              </tr>
+              {/* Row 5: 开张, 来料, 开数 */}
+              <tr>
+                <th>{t("craft.sheetSize")}</th>
+                <td className="craft-value">{po.sheetSize || "-"}</td>
+                <th>{t("craft.materialIn")}</th>
+                <td className="craft-value">{po.materialIn || "-"}</td>
+                <th>{t("craft.upCount")}</th>
+                <td className="craft-value">{po.upCount || "-"}</td>
+              </tr>
+              {/* Row 6: 数量, 余量, 成品, 拼数 */}
+              <tr>
+                <th>{t("craft.quantity")}</th>
+                <td className="craft-value">{po.quantity || "-"}</td>
+                <th>{t("craft.remainder")}</th>
+                <td className="craft-value">{po.remainder || "-"}</td>
+                <th>{t("craft.finishedQty")}</th>
+                <td className="craft-value">{po.finishedQty || "-"}</td>
+              </tr>
+              <tr>
+                <th>{t("craft.packCount")}</th>
+                <td className="craft-value" colSpan={5}>{po.packCount || "-"}</td>
+              </tr>
+
+              {/* Row: 印刷方式 (checkboxes) */}
+              <tr>
+                <th>{t("craft.printMethod")}</th>
+                <td colSpan={5}>
+                  <div className="craft-check-group">
+                    {(["single_side", "double_side", "work_and_turn", "work_and_tumble"] as PrintMethod[]).map((m) => (
+                      <label key={m} className="craft-check-item">
+                        <input type="checkbox" checked={po.printMethod?.includes(m) ?? false} readOnly />
+                        <span>{
+                          m === "single_side" ? t("craft.printSingleSide") :
+                          m === "double_side" ? t("craft.printDoubleSide") :
+                          m === "work_and_turn" ? t("craft.printWorkAndTurn") :
+                          t("craft.printWorkAndTumble")
+                        }</span>
+                      </label>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+
+              {/* Row: 看样类型 (checkboxes) */}
+              <tr>
+                <th>{t("craft.proofType")}</th>
+                <td colSpan={5}>
+                  <div className="craft-check-group">
+                    {(["sample", "ps_plate", "ctp_plate"] as ProofType[]).map((m) => (
+                      <label key={m} className="craft-check-item">
+                        <input type="checkbox" checked={po.proofType?.includes(m) ?? false} readOnly />
+                        <span>{
+                          m === "sample" ? t("craft.proofSample") :
+                          m === "ps_plate" ? t("craft.proofPSPlate") :
+                          t("craft.proofCTPPlate")
+                        }</span>
+                      </label>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+
+              {/* Row: 后道要求 (checkbox grid) */}
+              <tr>
+                <th>{t("craft.postProcess")}</th>
+                <td colSpan={5}>
+                  <div style={{ display: "flex", gap: "20px", flexWrap: "wrap", padding: "3px 0" }}>
+                    {["printing", "laminating", "mounting", "die_cutting", "uv_coating"].map((m) => (
+                      <label key={m} className="craft-post-item" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <input type="checkbox" checked={po.postProcess?.includes(m as PostProcess) ?? false} readOnly />
+                        <span>{
+                          m === "printing" ? t("craft.postPrinting") :
+                          m === "laminating" ? t("craft.postLaminating") :
+                          m === "mounting" ? t("craft.postMounting") :
+                          m === "die_cutting" ? t("craft.postDieCutting") :
+                          t("craft.postUVCoating")
+                        }</span>
+                      </label>
+                    ))}
+                    {/* 上UV is shown separately on the right in the original image - include it inline here too */}
+                    <span style={{ marginLeft: "auto" }}>
+                      <label className="craft-post-item" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <input type="checkbox" checked={po.postProcess?.includes("uv_coating") ?? false} readOnly />
+                        <span>上UV</span>
+                      </label>
+                    </span>
+                  </div>
+                </td>
+              </tr>
+
+              {/* Row: 备注 */}
+              <tr>
+                <th>{t("craft.notes")}</th>
+                <td colSpan={5}>
+                  <textarea className="craft-notes-area" value={po.craftNotes || ""} readOnly rows={2} />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div className="craft-footer-note">
+            注：以上印刷施工单请核对，仅供参考，如有问题，请致电联系！
+          </div>
+        </article>
       </div>
     );
   }
@@ -4866,6 +6346,126 @@ function PoDetailPage({
           </div>
         </section>
       </article>
+    </div>
+  );
+}
+
+function CustomerDetailPage({
+  locale,
+  t,
+  customers,
+  quotes,
+  pis,
+}: {
+  locale: Locale;
+  t: (key: string) => string;
+  customers: Customer[];
+  quotes: Quote[];
+  pis: PIRecord[];
+}) {
+  const { customerId } = useParams<{ customerId: string }>();
+  const navigate = useNavigate();
+  const customer = useMemo(
+    () => customers.find((item) => item.id === customerId || item.name === customerId) ?? null,
+    [customers, customerId],
+  );
+
+  const stats = useMemo(() => {
+    if (!customer) return { quoteCount: 0, piCount: 0 };
+    const customerName = customer.name;
+    const quoteCount = quotes.filter((q) => q.customer === customerName).length;
+    const piCount = pis.filter((p) => p.customer === customerName).length;
+    return { quoteCount, piCount };
+  }, [customer, quotes, pis]);
+
+  if (!customer) {
+    return (
+      <div className="page-stack">
+        <SectionShell title={t("customer.detailTitle")}>
+          <p>{t("customer.notFound")}</p>
+          <button className="secondary-button" type="button" onClick={() => navigate("/customers")}>
+            {t("button.back")}
+          </button>
+        </SectionShell>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-stack">
+      <SectionShell
+        title={t("customer.detailTitle")}
+        action={
+          <button className="secondary-button" type="button" onClick={() => navigate("/customers")}>
+            <IconChevronLeft size={18} strokeWidth={2} />
+            {t("button.back")}
+          </button>
+        }
+      >
+        <div className="detail-grid">
+          <section className="detail-card">
+            <h3>{t("customer.basicInfo")}</h3>
+            <dl className="detail-list">
+              <div>
+                <dt>{t("table.customerId")}</dt>
+                <dd>{customer.id}</dd>
+              </div>
+              <div>
+                <dt>{t("table.customerName")}</dt>
+                <dd>{customer.name}</dd>
+              </div>
+              <div>
+                <dt>{t("table.customerCode")}</dt>
+                <dd>{customer.code || "-"}</dd>
+              </div>
+              <div>
+                <dt>{t("table.country")}</dt>
+                <dd>{customer.country || "-"}</dd>
+              </div>
+              <div>
+                <dt>{t("table.contact")}</dt>
+                <dd>{customer.contact || "-"}</dd>
+              </div>
+              <div>
+                <dt>{t("table.phone")}</dt>
+                <dd>{customer.phone || "-"}</dd>
+              </div>
+              <div>
+                <dt>{t("table.email")}</dt>
+                <dd>{customer.email || "-"}</dd>
+              </div>
+              <div>
+                <dt>{t("table.address")}</dt>
+                <dd>{customer.address || "-"}</dd>
+              </div>
+              <div>
+                <dt>{t("table.status")}</dt>
+                <dd>
+                  <span className={`status-pill status-${customer.status.toLowerCase()}`}>{t(`status.${customer.status}`)}</span>
+                </dd>
+              </div>
+              <div>
+                <dt>{t("table.notes")}</dt>
+                <dd>{customer.notes || "-"}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="detail-card">
+            <h3>{t("customer.statistics")}</h3>
+            <div className="stat-cards">
+              <div className="stat-card">
+                <strong>{stats.quoteCount}</strong>
+                <span>{t("customer.quoteCount")}</span>
+              </div>
+              <div className="stat-card">
+                <strong>{stats.piCount}</strong>
+                <span>{t("customer.piCount")}</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </SectionShell>
     </div>
   );
 }
@@ -5247,7 +6847,7 @@ function ProductsPage({
             renderProductThumb(item, item.name),
             item.id,
             item.name,
-            item.supplier || "-",
+            getProductSupplierLabel(item),
             t(`category.${item.categoryKey}`),
             formatMoney(item.price, locale),
             String(item.stock),
@@ -5455,17 +7055,25 @@ function MiniList({ rows }: { rows: Array<{ title: string; subtitle: string; met
 function TableActions({
   t,
   extraActions,
+  onView,
   onEdit,
   onDelete,
 }: {
   t: (key: string) => string;
   extraActions?: ReactNode;
+  onView?: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
     <div className="action-links">
       {extraActions}
+      {onView && (
+        <button type="button" className="action-link view" onClick={onView}>
+          <IconEye size={16} strokeWidth={2} />
+          {t("action.view")}
+        </button>
+      )}
       <button type="button" className="action-link edit" onClick={onEdit}>
         <IconEdit size={16} strokeWidth={2} />
         {t("action.edit")}

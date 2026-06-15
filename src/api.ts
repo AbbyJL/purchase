@@ -1,5 +1,5 @@
-import { seedContracts, seedCustomers, seedOrders, seedPOs, seedPIs, seedProducts, seedQuotes, seedSuppliers } from "../shared/seed";
-import type { Brand, Contract, Customer, Order, PIRecord, PORecord, Product, Quote, QuoteLine, Supplier } from "./types";
+import { seedContracts, seedCustomers, seedDevelopments, seedOrders, seedPOs, seedPIs, seedProducts, seedQuotes, seedSuppliers } from "../shared/seed";
+import type { Brand, Contract, Customer, DevelopmentLine, DevelopmentRecord, Order, PIRecord, PORecord, Product, Quote, QuoteLine, Supplier } from "./types";
 
 type JsonResponse<T> = {
   data: T;
@@ -13,6 +13,7 @@ type AdminStats = {
   customers: number;
   suppliers: number;
   quotes: number;
+  developments: number;
   pis: number;
 };
 
@@ -36,7 +37,7 @@ function mapProduct(item: (typeof seedProducts)[number]): Product {
   return {
     id: item.id,
     name: item.name,
-    supplier: item.supplier,
+    suppliers: [...item.suppliers],
     categoryKey: item.categoryKey as Product["categoryKey"],
     price: item.price,
     stock: item.stock,
@@ -128,6 +129,36 @@ function mapQuoteLine(item: (typeof seedQuotes)[number]["lines"][number]): Quote
   };
 }
 
+function mapDevelopmentLine(item: (typeof seedDevelopments)[number]["lines"][number]): DevelopmentLine {
+  return {
+    ...item,
+  };
+}
+
+function mapDevelopment(item: (typeof seedDevelopments)[number]): DevelopmentRecord {
+  return {
+    id: item.id,
+    developmentNo: item.developmentNo,
+    date: item.date,
+    modificationDate: item.modificationDate,
+    register: item.register,
+    itemType: item.itemType,
+    brand: item.brand,
+    linkman: item.linkman,
+    salesperson: item.salesperson,
+    customer: item.customer,
+    item: item.item,
+    productCode: item.productCode,
+    productName: item.productName,
+    status: item.status as DevelopmentRecord["status"],
+    sourceQuoteId: item.sourceQuoteId,
+    sourceQuoteNo: item.sourceQuoteNo,
+    lines: item.lines.map(mapDevelopmentLine),
+    imageUrl: item.imageUrl,
+    notes: item.notes,
+  };
+}
+
 function mapPI(item: (typeof seedPIs)[number]): PIRecord {
   return {
     id: item.id,
@@ -164,6 +195,7 @@ function mapPI(item: (typeof seedPIs)[number]): PIRecord {
 function mapPO(item: (typeof seedPOs)[number]): PORecord {
   return {
     id: item.id,
+    poType: "purchase" as const,
     poNo: item.poNo,
     sourcePiId: item.sourcePiId,
     date: item.date,
@@ -189,11 +221,29 @@ function mapPO(item: (typeof seedPOs)[number]): PORecord {
     packingRows: [...item.packingRows],
     notes: item.notes,
     imageUrl: item.imageUrl,
+    orderNo: "",
+    maker: "",
+    makeDate: "",
+    styleNo: "",
+    customerOrderNo: "",
+    craftProductName: "",
+    relatedOrderNo: "",
+    sheetSize: "",
+    materialIn: "",
+    upCount: "",
+    quantity: 0,
+    remainder: 0,
+    finishedQty: 0,
+    packCount: "",
+    printMethod: [],
+    proofType: [],
+    postProcess: [],
+    craftNotes: "",
   };
 }
 
 export async function loadAdminData() {
-  const [overview, products, orders, contracts, brands, customers, suppliers, quotes, pis, pos] = await Promise.allSettled([
+  const [overview, products, orders, contracts, brands, customers, suppliers, quotes, developments, pis, pos] = await Promise.allSettled([
     requestJson<JsonResponse<AdminStats>>("/api/overview"),
     requestJson<JsonResponse<Product[]>>("/api/products"),
     requestJson<JsonResponse<Order[]>>("/api/orders"),
@@ -202,6 +252,7 @@ export async function loadAdminData() {
     requestJson<JsonResponse<Customer[]>>("/api/customers"),
     requestJson<JsonResponse<Supplier[]>>("/api/suppliers"),
     requestJson<JsonResponse<Quote[]>>("/api/quotes"),
+    requestJson<JsonResponse<DevelopmentRecord[]>>("/api/development"),
     requestJson<JsonResponse<PIRecord[]>>("/api/pis"),
     requestJson<JsonResponse<PORecord[]>>("/api/pos"),
   ]);
@@ -218,6 +269,7 @@ export async function loadAdminData() {
             customers: seedCustomers.length,
             suppliers: seedSuppliers.length,
             quotes: seedQuotes.length,
+            developments: seedDevelopments.length,
             pis: seedPIs.length,
           },
     products:
@@ -237,6 +289,7 @@ export async function loadAdminData() {
     customers: customers.status === "fulfilled" ? customers.value.data : seedCustomers.map(mapCustomer),
     suppliers: suppliers.status === "fulfilled" ? suppliers.value.data : seedSuppliers.map(mapSupplier),
     quotes: quotes.status === "fulfilled" ? quotes.value.data : seedQuotes.map(mapQuote),
+    developments: developments.status === "fulfilled" ? developments.value.data : seedDevelopments.map(mapDevelopment),
     pis: pis.status === "fulfilled" ? pis.value.data : seedPIs.map(mapPI),
     pos: pos.status === "fulfilled" ? pos.value.data : seedPOs.map(mapPO),
   };
@@ -322,6 +375,26 @@ export async function deleteBrand(id: string) {
   });
 }
 
+export interface BrandDetailStats {
+  quotes: number;
+  developments: number;
+  pis: number;
+  pos: number;
+}
+
+export interface BrandDetailResponse {
+  ok: boolean;
+  brand?: Brand;
+  stats?: BrandDetailStats;
+  message?: string;
+}
+
+export async function getBrandDetail(id: string) {
+  return requestJson<BrandDetailResponse>(`/api/brands?id=${encodeURIComponent(id)}`, {
+    method: "GET",
+  });
+}
+
 export async function createCustomer(input: Partial<Customer> & { id?: string }) {
   return requestJson<JsonResponse<Customer> | { ok: boolean; customer: Customer }>("/api/customers", {
     method: "POST",
@@ -378,6 +451,26 @@ export async function updateQuote(input: Partial<Quote> & { id: string }) {
 
 export async function deleteQuote(id: string) {
   return requestJson<{ ok: boolean }>(`/api/quotes?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createDevelopment(input: Partial<DevelopmentRecord> & { id?: string }) {
+  return requestJson<JsonResponse<DevelopmentRecord> | { ok: boolean; development: DevelopmentRecord }>("/api/development", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateDevelopment(input: Partial<DevelopmentRecord> & { id: string }) {
+  return requestJson<{ ok: boolean }>("/api/development", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteDevelopment(id: string) {
+  return requestJson<{ ok: boolean }>(`/api/development?id=${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
 }
