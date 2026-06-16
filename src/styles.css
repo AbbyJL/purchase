@@ -4473,6 +4473,13 @@ a {
   gap: 10px;
 }
 
+.quote-line-suppliers-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .quote-line-suppliers-head span {
   font-size: 0.78rem;
   font-weight: 700;

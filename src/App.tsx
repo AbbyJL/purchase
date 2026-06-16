@@ -487,6 +487,7 @@ const emptyQuoteLineDraft: QuoteLineDraft = {
   finishedValue: "",
   remarksValue: "",
   pricingNotes: "",
+  cost: "",
   costItems: createQuoteCostItems(),
 };
 
@@ -814,6 +815,7 @@ function createQuoteLine(overrides: Partial<QuoteLineDraft> = {}): QuoteLineDraf
     sample: 0,
     description: "",
     pricingNotes: "",
+    cost: "",
     ...overrides,
     ...spec,
     id: overrides.id ?? createLineItemId(),
@@ -1459,6 +1461,18 @@ function App() {
       }),
     );
     setPendingQuoteSupplierFocus({ rowIndex, supplierIndex: nextSupplierIndex });
+  }
+
+  function saveQuoteLineSuppliers(rowIndex: number) {
+    setQuoteLines((current) =>
+      current.map((row, index) => {
+        if (index !== rowIndex) return row;
+        return {
+          ...row,
+          suppliers: normalizeQuoteSuppliers(row.suppliers).map((supplier) => supplier.trim()),
+        };
+      }),
+    );
   }
 
   function removeQuoteLineSupplier(rowIndex: number, supplierIndex: number) {
@@ -4583,10 +4597,15 @@ function generatePIFromQuote(quote: Quote) {
                             <div className="quote-line-suppliers">
                               <div className="quote-line-suppliers-head">
                                 <span>{t("form.quoteSuppliers")}</span>
-                                <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
-                                  <IconPlus size={14} strokeWidth={2} />
-                                  {t("button.addQuoteSupplier")}
-                                </button>
+                                <div className="quote-line-suppliers-actions">
+                                  <button type="button" className="secondary-button tiny-button" onClick={() => saveQuoteLineSuppliers(index)}>
+                                    {t("button.save")}
+                                  </button>
+                                  <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
+                                    <IconPlus size={14} strokeWidth={2} />
+                                    {t("button.addQuoteSupplier")}
+                                  </button>
+                                </div>
                               </div>
                               <p className="quote-line-suppliers-help">{t("quote.supplierHelp")}</p>
                               <div className="quote-line-supplier-list">
