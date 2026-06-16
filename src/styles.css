@@ -2927,8 +2927,7 @@ a {
 .pi-spec-panel,
 .pi-image-panel,
 .pi-size-panel,
-.pi-line-panel,
-.pi-footer-grid {
+.pi-line-panel {
   padding: 14px;
   border-radius: 14px;
   border: 1px solid rgba(122, 136, 148, 0.16);
@@ -3282,11 +3281,6 @@ a {
 .pi-add-line-btn:hover {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(122, 136, 148, 0.35);
-}
-
-.pi-footer-grid {
-  display: grid;
-  gap: 10px;
 }
 
 .tiny-button {

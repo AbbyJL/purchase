@@ -5216,17 +5216,6 @@ function generatePIFromQuote(quote: Quote) {
                 </button>
               </section>
 
-              <div className="pi-footer-grid">
-                <label className="full-span">
-                  <span>{t("form.piPdfUrl")}</span>
-                  <input value={piDraft.pdfUrl} onChange={(event) => setPIDraft({ ...piDraft, pdfUrl: event.target.value })} placeholder="https://..." />
-                </label>
-                <label className="full-span">
-                  <span>{t("form.piNotes")}</span>
-                  <textarea rows={3} value={piDraft.notes} onChange={(event) => setPIDraft({ ...piDraft, notes: event.target.value })} />
-                </label>
-              </div>
-
               <section className="pi-timeline-editor">
                 <div className="editable-head">
                   <div>
