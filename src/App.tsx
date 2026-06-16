@@ -2096,6 +2096,19 @@ function App() {
     }
   }
 
+  async function handlePIImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    try {
+      const url = await uploadImageFile(file);
+      setPIDraft((current) => ({ ...current, imageUrl: url }));
+    } catch {
+      setNotice(t("notice.imageUploadFailed"));
+    }
+  }
+
   function clearProductImage() {
     setProductDraft((current) => ({ ...current, imageUrl: "" }));
   }
@@ -2106,6 +2119,10 @@ function App() {
 
   function clearQuoteImage() {
     setQuoteDraft((current) => ({ ...current, imageUrl: "" }));
+  }
+
+  function clearPIImage() {
+    setPIDraft((current) => ({ ...current, imageUrl: "" }));
   }
 
   async function submitProductDraft(event: React.FormEvent<HTMLFormElement>) {
@@ -5083,14 +5100,25 @@ function generatePIFromQuote(quote: Quote) {
                       <strong>{t("pi.imageTitle")}</strong>
                       <p>{t("pi.imageSubtitle")}</p>
                     </div>
+                    <button type="button" className="secondary-button tiny-button" onClick={() => setPIDraft((current) => ({ ...current, imageUrl: current.imageUrl || "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?auto=format&fit=crop&w=1200&q=80" }))}>
+                      <IconPhoto size={16} strokeWidth={2} />
+                      {t("pi.fillImage")}
+                    </button>
                   </div>
-                  <div className="pi-image-frame">
-                    {piDraft.imageUrl ? <img src={piDraft.imageUrl} alt={piDraft.itemCode || piDraft.piNo || "PI"} /> : <div className="pi-image-placeholder">{t("pi.imagePlaceholder")}</div>}
+                  <div className="product-image-panel">
+                    <div className="product-image-preview pi-image-frame">
+                      {piDraft.imageUrl ? <img src={piDraft.imageUrl} alt={piDraft.itemCode || piDraft.piNo || "PI"} /> : <div className="pi-image-placeholder">{t("pi.imagePlaceholder")}</div>}
+                    </div>
+                    <div className="product-image-controls">
+                      <label>
+                        <span>{t("pi.imageUpload")}</span>
+                        <input type="file" accept="image/*" onChange={handlePIImageUpload} />
+                      </label>
+                      <button type="button" className="secondary-button tiny-button" onClick={clearPIImage}>
+                        {t("pi.imageClear")}
+                      </button>
+                    </div>
                   </div>
-                  <label className="pi-image-input">
-                    <span>{t("pi.imageUrl")}</span>
-                    <input value={piDraft.imageUrl} onChange={(event) => setPIDraft({ ...piDraft, imageUrl: event.target.value })} placeholder="https://..." />
-                  </label>
                 </aside>
               </div>
 
