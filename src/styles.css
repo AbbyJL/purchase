@@ -2723,7 +2723,9 @@ a {
 
 .quote-line-item {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
 }
 
 .quote-line-cost {
@@ -2784,7 +2786,7 @@ a {
 .quote-line-remarks textarea {
   padding: 8px 10px;
   resize: vertical;
-  min-height: 62px;
+  min-height: 54px;
   line-height: 1.5;
 }
 
@@ -4490,9 +4492,9 @@ a {
 
 .quote-line-suppliers {
   display: grid;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 16px;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
   border: 1px solid rgba(97, 114, 129, 0.14);
   background: rgba(247, 250, 253, 0.94);
   width: 100%;
@@ -4515,15 +4517,18 @@ a {
 }
 
 .quote-line-supplier-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .quote-line-supplier-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(180px, 1fr) auto;
   gap: 8px;
   align-items: center;
+  min-width: min(280px, 100%);
+  flex: 1 1 280px;
 }
 
 .quote-line-supplier-row input {
@@ -4645,13 +4650,13 @@ a {
 
   .quote-header-grid-top,
   .quote-header-grid-bottom,
-  .quote-spec-config-row,
-  .quote-line-row {
+  .quote-spec-config-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .quote-lines-head {
-    display: none;
+    display: grid;
+    grid-template-columns: 44px 88px minmax(160px, 1.2fr) 72px 64px minmax(240px, 1fr) minmax(220px, 1fr) 120px minmax(96px, 0.3fr);
   }
 
   .quote-line-suppliers {

@@ -68,6 +68,20 @@ test.describe("Quote Form - Supplier Functionality", () => {
     await page.waitForTimeout(300);
     await expect(page.locator('.quote-line-supplier-row input')).toHaveCount(beforeCount + 1);
   });
+
+  test("quote line stays horizontal on narrow screens", async ({ page }) => {
+    await page.setViewportSize({ width: 674, height: 715 });
+    await page.getByRole("button", { name: /新增报价|Add quote/i }).first().click();
+    await page.waitForTimeout(500);
+
+    const gridTemplateColumns = await page.evaluate(() => {
+      const el = document.querySelector(".quote-line-row");
+      if (!el) return "";
+      return getComputedStyle(el).gridTemplateColumns;
+    });
+
+    expect(gridTemplateColumns.split(" ").length).toBeGreaterThan(1);
+  });
 });
 
 test.describe("Product Form - Multiple Suppliers", () => {
