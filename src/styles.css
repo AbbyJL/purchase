@@ -1933,6 +1933,14 @@ a {
   align-items: start;
 }
 
+.quote-image-panel {
+  margin-top: 2px;
+}
+
+.quote-image-panel .product-image-preview {
+  min-height: 180px;
+}
+
 .product-image-preview {
   min-height: 220px;
   border-radius: 12px;
@@ -2583,46 +2591,6 @@ a {
   padding: 12px;
 }
 
-.quote-spec-panel {
-  margin: 12px 0 14px;
-  padding: 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(122, 136, 148, 0.14);
-  background: linear-gradient(180deg, rgba(247, 249, 252, 0.98), rgba(255, 255, 255, 0.98));
-}
-
-.quote-spec-panel .editable-head {
-  margin-bottom: 12px;
-}
-
-.quote-spec-config {
-  display: grid;
-  gap: 10px;
-}
-
-.quote-spec-config-row {
-  display: grid;
-  grid-template-columns: 92px minmax(160px, 0.8fr) minmax(200px, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.quote-spec-config-row span {
-  font-size: 0.84rem;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.quote-spec-config-row input,
-.quote-spec-config-row select {
-  min-height: 38px;
-  padding: 0 12px;
-  border-radius: 9px;
-  border: 1px solid rgba(96, 110, 122, 0.22);
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--text);
-}
-
 .quote-lines-table {
   display: grid;
   gap: 8px;
@@ -2632,9 +2600,9 @@ a {
 .quote-lines-head,
 .quote-line-row {
   display: grid;
-  grid-template-columns: 72px 180px 220px 110px 100px minmax(260px, 1.3fr) minmax(260px, 1.1fr) 180px;
-  gap: 12px;
-  min-width: 1380px;
+  grid-template-columns: 72px 180px 220px 110px 100px minmax(320px, 1.4fr) minmax(300px, 1.2fr) 180px;
+  gap: 10px;
+  min-width: 1480px;
 }
 
 .quote-lines-head {
@@ -2653,10 +2621,10 @@ a {
 
 .quote-line-group {
   display: grid;
-  gap: 12px;
-  padding: 12px;
+  gap: 10px;
+  padding: 10px;
   border: 1px solid rgba(96, 110, 122, 0.24);
-  border-radius: 12px;
+  border-radius: 14px;
   background: #fff;
 }
 
@@ -2685,14 +2653,14 @@ a {
 .quote-line-row textarea {
   padding: 8px 10px;
   resize: vertical;
-  min-height: 116px;
+  min-height: 88px;
   line-height: 1.5;
 }
 
 .quote-line-check {
   display: grid;
   place-items: start center;
-  padding-top: 12px;
+  padding-top: 8px;
 }
 
 .quote-line-image {
@@ -2703,8 +2671,8 @@ a {
 .quote-line-image img,
 .quote-line-thumb {
   width: 100%;
-  min-height: 92px;
-  max-height: 112px;
+  min-height: 84px;
+  max-height: 104px;
   object-fit: cover;
   border: 1px solid rgba(96, 110, 122, 0.22);
   background: #fff;
@@ -2714,16 +2682,37 @@ a {
   display: grid;
   place-items: center;
   color: var(--muted);
-  min-height: 92px;
+  min-height: 84px;
 }
 
 .quote-line-image input {
   min-height: 32px;
 }
 
+.quote-line-image-upload {
+  display: grid;
+  gap: 6px;
+}
+
+.quote-line-image-upload span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.quote-line-image-upload input[type="file"] {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
 .quote-line-item {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
 }
 
 .quote-line-cost {
@@ -2734,12 +2723,33 @@ a {
 
 .quote-line-specs {
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  grid-template-areas:
+    "type size color finished"
+    "remarks remarks remarks remarks";
+  gap: 8px 8px;
+  align-content: start;
 }
 
 .quote-line-specs label {
   display: grid;
   gap: 6px;
+}
+
+.quote-line-specs label:nth-of-type(1) {
+  grid-area: type;
+}
+
+.quote-line-specs label:nth-of-type(2) {
+  grid-area: size;
+}
+
+.quote-line-specs label:nth-of-type(3) {
+  grid-area: color;
+}
+
+.quote-line-specs label:nth-of-type(4) {
+  grid-area: finished;
 }
 
 .quote-line-specs span,
@@ -2763,8 +2773,12 @@ a {
 .quote-line-remarks textarea {
   padding: 8px 10px;
   resize: vertical;
-  min-height: 94px;
+  min-height: 54px;
   line-height: 1.5;
+}
+
+.quote-line-remarks {
+  grid-area: remarks;
 }
 
 /* ---- spec lock toggle ---- */
@@ -2913,8 +2927,7 @@ a {
 .pi-spec-panel,
 .pi-image-panel,
 .pi-size-panel,
-.pi-line-panel,
-.pi-footer-grid {
+.pi-line-panel {
   padding: 14px;
   border-radius: 14px;
   border: 1px solid rgba(122, 136, 148, 0.16);
@@ -3268,11 +3281,6 @@ a {
 .pi-add-line-btn:hover {
   background: rgba(255, 255, 255, 0.95);
   border-color: rgba(122, 136, 148, 0.35);
-}
-
-.pi-footer-grid {
-  display: grid;
-  gap: 10px;
 }
 
 .tiny-button {
@@ -4363,25 +4371,15 @@ a {
   backdrop-filter: blur(10px);
 }
 
-.quote-spec-panel {
-  margin: 0;
-  padding: 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(97, 114, 129, 0.14);
-  background: linear-gradient(180deg, rgba(247, 250, 253, 0.98), rgba(255, 255, 255, 0.98));
-}
-
-.quote-spec-config {
-  gap: 12px;
-}
-
-.quote-spec-config-row {
-  grid-template-columns: 88px minmax(160px, 0.75fr) minmax(200px, 1fr) auto;
-}
-
 .quote-lines-table {
   gap: 12px;
-  overflow: visible;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure each quote line group stacks vertically with proper spacing */
+.quote-lines-table > .quote-line-group + .quote-line-group {
+  margin-top: 0;
 }
 
 .quote-lines-head {
@@ -4397,7 +4395,7 @@ a {
 
 .quote-lines-head,
 .quote-line-row {
-  grid-template-columns: 54px 164px minmax(280px, 1.25fr) 104px 96px minmax(250px, 1.05fr) minmax(210px, 1fr) 160px 44px;
+  grid-template-columns: 44px 110px minmax(200px, 1.5fr) 88px 80px minmax(320px, 1.4fr) minmax(300px, 1.2fr) 140px minmax(100px, 0.3fr);
   min-width: 0;
 }
 
@@ -4409,15 +4407,15 @@ a {
 }
 
 .quote-line-group {
-  padding: 14px;
-  border-radius: 20px;
+  padding: 10px;
+  border-radius: 14px;
   border: 1px solid rgba(97, 114, 129, 0.16);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 253, 0.96));
   box-shadow: 0 12px 28px rgba(80, 93, 109, 0.06);
 }
 
 .quote-line-row {
-  gap: 12px;
+  gap: 10px;
   align-items: start;
 }
 
@@ -4435,19 +4433,19 @@ a {
 }
 
 .quote-line-row textarea {
-  min-height: 112px;
-  padding: 10px 12px;
+  min-height: 88px;
+  padding: 8px 10px;
 }
 
 .quote-line-check {
-  padding-top: 10px;
+  padding-top: 8px;
 }
 
 .quote-line-image img,
 .quote-line-thumb {
-  min-height: 104px;
-  max-height: 126px;
-  border-radius: 16px;
+  min-height: 84px;
+  max-height: 104px;
+  border-radius: 14px;
   border: 1px solid rgba(97, 114, 129, 0.18);
   object-fit: cover;
   background: rgba(248, 250, 252, 0.98);
@@ -4459,11 +4457,13 @@ a {
 
 .quote-line-suppliers {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 16px;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
   border: 1px solid rgba(97, 114, 129, 0.14);
   background: rgba(247, 250, 253, 0.94);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .quote-line-suppliers-head {
@@ -4481,16 +4481,26 @@ a {
   text-transform: uppercase;
 }
 
+.quote-line-suppliers-help {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: rgba(97, 114, 129, 0.9);
+}
+
 .quote-line-supplier-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .quote-line-supplier-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(180px, 1fr) auto;
   gap: 8px;
   align-items: center;
+  min-width: min(280px, 100%);
+  flex: 1 1 280px;
 }
 
 .quote-line-supplier-row input {
@@ -4611,14 +4621,17 @@ a {
   }
 
   .quote-header-grid-top,
-  .quote-header-grid-bottom,
-  .quote-spec-config-row,
-  .quote-line-row {
+  .quote-header-grid-bottom {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .quote-lines-head {
-    display: none;
+    display: grid;
+    grid-template-columns: 44px 88px minmax(160px, 1.2fr) 72px 64px minmax(240px, 1fr) minmax(220px, 1fr) 120px minmax(96px, 0.3fr);
+  }
+
+  .quote-line-suppliers {
+    padding: 10px;
   }
 
   .quote-line-check {

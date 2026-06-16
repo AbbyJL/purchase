@@ -445,7 +445,6 @@ const quoteSheetTemplate: {
       description:
         "TYPE: 300克书纸（参考 APPA-T04）\nSIZE: 6.25\" x 9\" Folded 6.25\" x 4.25\"\nCOLOR: PMS 11-0104 TCX, PMS 18-5622 TCX, PMS 555C\nFINISHED: 啤形，压折位线对折\nREMARKS: 参考原版结构",
       pricingNotes: "1M:900/M\n2.5M:720/M\n5M:690/M",
-      cost: "900/M",
     }),
     createQuoteLine({
       checked: true,
@@ -455,7 +454,6 @@ const quoteSheetTemplate: {
       description:
         "TYPE: 180克书纸信封\nSIZE: 6.5\" x 4.75\" + 3\" Flap\nCOLOR: 双面印 PMS 7621C，双面过哑油\nFINISHED: 啤形，做成信封袋，开口处粘2条双面胶\nREMARKS: 包含贴纸加工",
       pricingNotes: "1M:1350/M\n2.5M:1150/M\n5M:1100/M",
-      cost: "1350/M",
     }),
     createQuoteLine({
       checked: false,
@@ -465,7 +463,6 @@ const quoteSheetTemplate: {
       description:
         "TYPE: 300克书纸贴纸\nSIZE: 6.25\" x 9\" 适配折页\nCOLOR: CMYK + PMS 11-0104 TCX\nFINISHED: 四周圆角，局部镂空\nREMARKS: 可按批版调整",
       pricingNotes: "1M:900/M\n2.5M:720/M\n5M:690/M",
-      cost: "900/M",
     }),
   ],
   tiers: [
@@ -490,7 +487,6 @@ const emptyQuoteLineDraft: QuoteLineDraft = {
   finishedValue: "",
   remarksValue: "",
   pricingNotes: "",
-  cost: "",
   costItems: createQuoteCostItems(),
 };
 
@@ -659,7 +655,7 @@ function createQuoteCostItems(): QuoteCostItem[] {
 }
 
 function normalizeQuoteSuppliers(value?: string[] | null) {
-  const suppliers = (value ?? []).map((item) => String(item ?? "").trim()).filter(Boolean);
+  const suppliers = (value ?? []).map((item) => String(item ?? "").trim());
   return suppliers.length > 0 ? suppliers : [""];
 }
 
@@ -818,7 +814,6 @@ function createQuoteLine(overrides: Partial<QuoteLineDraft> = {}): QuoteLineDraf
     sample: 0,
     description: "",
     pricingNotes: "",
-    cost: "",
     ...overrides,
     ...spec,
     id: overrides.id ?? createLineItemId(),
@@ -1370,6 +1365,7 @@ function App() {
   const [quoteTiers, setQuoteTiers] = useState<QuoteTier[]>([]);
   const [quotePreviewQty, setQuotePreviewQty] = useState("1M");
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [pendingQuoteSupplierFocus, setPendingQuoteSupplierFocus] = useState<{ rowIndex: number; supplierIndex: number } | null>(null);
   const [developmentDraft, setDevelopmentDraft] = useState<DevelopmentDraft>(emptyDevelopmentDraft);
   const [developmentLines, setDevelopmentLines] = useState<DevelopmentLineDraft[]>([]);
   const [editingDevelopmentId, setEditingDevelopmentId] = useState<string | null>(null);
@@ -1450,16 +1446,19 @@ function App() {
   }
 
   function addQuoteLineSupplier(rowIndex: number) {
+    let nextSupplierIndex = 0;
     setQuoteLines((current) =>
-      current.map((row, index) =>
-        index === rowIndex
-          ? {
-              ...row,
-              suppliers: [...normalizeQuoteSuppliers(row.suppliers), ""],
-            }
-          : row,
-      ),
+      current.map((row, index) => {
+        if (index !== rowIndex) return row;
+        const suppliers = [...normalizeQuoteSuppliers(row.suppliers), ""];
+        nextSupplierIndex = suppliers.length - 1;
+        return {
+          ...row,
+          suppliers,
+        };
+      }),
     );
+    setPendingQuoteSupplierFocus({ rowIndex, supplierIndex: nextSupplierIndex });
   }
 
   function removeQuoteLineSupplier(rowIndex: number, supplierIndex: number) {
@@ -1628,6 +1627,10 @@ function App() {
     return findProductMatchByCode(products, line.productCode)?.product.id ?? products.find((item) => item.name === line.productName)?.id ?? "";
   }
 
+  const supplierNameOptions = useMemo(() => {
+    return Array.from(new Set(suppliers.map((item) => item.name.trim()).filter(Boolean)));
+  }, [suppliers]);
+
   const pageTitleKey =
     currentPage === "products"
       ? "page.products"
@@ -1662,6 +1665,21 @@ function App() {
     setNotice(t("notice.quoteAccessDenied"));
     navigate("/dashboard", { replace: true });
   }, [currentPage, navigate, quoteAccessGranted, t]);
+
+  useEffect(() => {
+    if (!pendingQuoteSupplierFocus) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const selector = `[data-quote-line-index="${pendingQuoteSupplierFocus.rowIndex}"] [data-quote-line-supplier-index="${pendingQuoteSupplierFocus.supplierIndex}"] input`;
+      const input = document.querySelector<HTMLInputElement>(selector);
+      if (!input) return;
+      input.focus();
+      input.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setPendingQuoteSupplierFocus(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingQuoteSupplierFocus, quoteLines]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2052,12 +2070,59 @@ function App() {
     }
   }
 
+  async function handleQuoteLineImageUpload(index: number, event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    try {
+      const url = await uploadImageFile(file);
+      setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, imageUrl: url } : row)));
+    } catch {
+      setNotice(t("notice.imageUploadFailed"));
+    }
+  }
+
+  async function handleQuoteImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    try {
+      const url = await uploadImageFile(file);
+      setQuoteDraft((current) => ({ ...current, imageUrl: url }));
+    } catch {
+      setNotice(t("notice.imageUploadFailed"));
+    }
+  }
+
+  async function handlePIImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    try {
+      const url = await uploadImageFile(file);
+      setPIDraft((current) => ({ ...current, imageUrl: url }));
+    } catch {
+      setNotice(t("notice.imageUploadFailed"));
+    }
+  }
+
   function clearProductImage() {
     setProductDraft((current) => ({ ...current, imageUrl: "" }));
   }
 
   function clearCustomerImage() {
     setCustomerDraft((current) => ({ ...current, imageUrl: "" }));
+  }
+
+  function clearQuoteImage() {
+    setQuoteDraft((current) => ({ ...current, imageUrl: "" }));
+  }
+
+  function clearPIImage() {
+    setPIDraft((current) => ({ ...current, imageUrl: "" }));
   }
 
   async function submitProductDraft(event: React.FormEvent<HTMLFormElement>) {
@@ -2332,7 +2397,6 @@ function App() {
         finishedValue: String(item.finishedValue ?? "").trim(),
         remarksValue: String(item.remarksValue ?? "").trim(),
         pricingNotes: item.pricingNotes.trim(),
-        cost: item.cost.trim(),
         suppliers: normalizeQuoteSuppliers(item.suppliers).map((supplier) => supplier.trim()).filter(Boolean),
         costItems: (item.costItems || [])
           .filter((costItem) => costItem.label.trim())
@@ -4219,10 +4283,27 @@ function generatePIFromQuote(quote: Quote) {
                         <span>{t("form.quoteItem")}</span>
                         <input value={quoteDraft.item} onChange={(event) => setQuoteDraft({ ...quoteDraft, item: event.target.value })} placeholder="信封 / 贴纸 / 纸卡" />
                       </label>
-                      <label className="full-span">
-                        <span>{t("form.quoteImage")}</span>
-                        <input value={quoteDraft.imageUrl} onChange={(event) => setQuoteDraft({ ...quoteDraft, imageUrl: event.target.value })} placeholder="https://..." />
-                      </label>
+                      <div className="product-image-panel quote-image-panel full-span">
+                        <div className="product-image-preview">
+                          {quoteDraft.imageUrl ? (
+                            <img src={quoteDraft.imageUrl} alt={quoteDraft.item || t("form.quoteImagePreview")} />
+                          ) : (
+                            <div className="product-image-placeholder">
+                              <IconPhoto size={22} strokeWidth={1.8} />
+                              <span>{t("form.quoteImagePlaceholder")}</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="product-image-controls">
+                          <label>
+                            <span>{t("form.quoteImageUpload")}</span>
+                            <input type="file" accept="image/*" onChange={handleQuoteImageUpload} />
+                          </label>
+                          <button type="button" className="secondary-button tiny-button" onClick={clearQuoteImage}>
+                            {t("form.quoteImageClear")}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </section>
 
@@ -4238,34 +4319,6 @@ function generatePIFromQuote(quote: Quote) {
                       </button>
                     </div>
 
-                    <div className="quote-spec-panel">
-                      <div className="editable-head">
-                        <div>
-                          <strong>{t("quote.specTitle")}</strong>
-                          <p>TYPE、SIZE、COLOR、FINISHED 在报价录入页只允许选择，新增选项在这里维护。</p>
-                        </div>
-                      </div>
-                      <div className="quote-spec-config">
-                        {(Object.keys(quoteSpecFieldLabels) as QuoteSpecField[]).map((field) => (
-                          <div className="quote-spec-config-row" key={field}>
-                            <span>{quoteSpecFieldLabels[field]}</span>
-                            <select value={quoteSpecNewValues[field]} onChange={(event) => setQuoteSpecNewValues((current) => ({ ...current, [field]: event.target.value }))}>
-                              <option value="">选择已有选项</option>
-                              {quoteSpecOptions[field].map((option) => (
-                                <option key={option} value={option}>
-                                  {option}
-                                </option>
-                              ))}
-                            </select>
-                            <input value={quoteSpecNewValues[field]} onChange={(event) => setQuoteSpecNewValues((current) => ({ ...current, [field]: event.target.value }))} placeholder={`新增 ${quoteSpecFieldLabels[field]} 选项`} />
-                            <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteSpecOption(field)}>
-                              新增
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
                     <div className="quote-lines-table">
                       <div className="quote-lines-head">
                         <span>CHECK</span>
@@ -4275,21 +4328,23 @@ function generatePIFromQuote(quote: Quote) {
                         <span>SAMPLE</span>
                         <span>SPEC</span>
                         <span>PRICING</span>
-                        <span>COST</span>
                         <span className="cost-col-toggle">{t("form.quoteCostToggle")}</span>
                       </div>
                       {quoteLines.map((line, index) => {
                         const hasCostItems = (line.costItems ?? []).length > 0;
                         const lineSuppliers = normalizeQuoteSuppliers(line.suppliers);
                         return (
-                          <div className="quote-line-group" key={line.id ?? index}>
+                          <div className="quote-line-group" key={line.id ?? index} data-quote-line-index={index}>
                             <div className="quote-line-row">
                               <label className="quote-line-check">
                                 <input type="checkbox" checked={Boolean(line.checked)} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, checked: event.target.checked } : row)))} />
                               </label>
                               <label className="quote-line-image">
                                 {line.imageUrl ? <img src={line.imageUrl} alt={line.productName || line.productCode || "quote line"} /> : <div className="quote-line-thumb placeholder"><IconPhoto size={18} strokeWidth={2} /></div>}
-                                <input value={line.imageUrl} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, imageUrl: event.target.value } : row)))} placeholder="Image URL" />
+                                <div className="quote-line-image-upload">
+                                  <span>上传图片</span>
+                                  <input type="file" accept="image/*" onChange={(event) => void handleQuoteLineImageUpload(index, event)} />
+                                </div>
                               </label>
                               <div className="quote-line-item">
                                 <select value={getQuoteLineProductId(line)} onChange={(event) => updateQuoteLineWithProduct(index, event.target.value)}>
@@ -4349,34 +4404,6 @@ function generatePIFromQuote(quote: Quote) {
                                     <option key={`${line.id ?? index}-${option}`} value={option} />
                                   ))}
                                 </datalist>
-                                <div className="quote-line-suppliers">
-                                  <div className="quote-line-suppliers-head">
-                                    <span>{t("form.quoteSuppliers")}</span>
-                                    <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
-                                      <IconPlus size={14} strokeWidth={2} />
-                                      {t("button.addQuoteSupplier")}
-                                    </button>
-                                  </div>
-                                  <div className="quote-line-supplier-list">
-                                    {lineSuppliers.map((supplier, supplierIndex) => (
-                                      <div className="quote-line-supplier-row" key={`${line.id ?? index}-supplier-${supplierIndex}`}>
-                                        <input
-                                          value={supplier}
-                                          onChange={(event) => setQuoteLineSupplierValue(index, supplierIndex, event.target.value)}
-                                          placeholder={t("form.quoteSupplierPlaceholder")}
-                                        />
-                                        <button
-                                          type="button"
-                                          className="action-link delete"
-                                          onClick={() => removeQuoteLineSupplier(index, supplierIndex)}
-                                          disabled={lineSuppliers.length === 1 && !supplier.trim()}
-                                        >
-                                          <IconTrash size={14} strokeWidth={2} />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
                               </div>
                               <input type="number" min="0" step="0.01" value={line.price} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, price: Number(event.target.value) } : row)))} placeholder="0" />
                               <input type="number" min="0" step="1" value={line.sample} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, sample: Number(event.target.value) } : row)))} placeholder="0" />
@@ -4461,13 +4488,6 @@ function generatePIFromQuote(quote: Quote) {
                                 )}
                               </div>
                               <textarea rows={5} value={line.pricingNotes} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, pricingNotes: event.target.value } : row)))} placeholder={"1M: ...\n2.5M: ...\n5M: ..."} />
-                              <div className="quote-line-cost">
-                                <input value={line.cost} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, cost: event.target.value } : row)))} placeholder="900/M" />
-                                <button type="button" className="action-link delete" onClick={() => setQuoteLines((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
-                                  <IconTrash size={16} strokeWidth={2} />
-                                  {t("action.delete")}
-                                </button>
-                              </div>
                               <div className="quote-line-cost-side">
                                 {hasCostItems ? (
                                   <div className="cost-mini-list">
@@ -4554,11 +4574,50 @@ function generatePIFromQuote(quote: Quote) {
                                 >
                                   <IconPlus size={14} strokeWidth={2} />
                                 </button>
+                                <button type="button" className="action-link delete" onClick={() => setQuoteLines((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
+                                  <IconTrash size={16} strokeWidth={2} />
+                                  {t("action.delete")}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="quote-line-suppliers">
+                              <div className="quote-line-suppliers-head">
+                                <span>{t("form.quoteSuppliers")}</span>
+                                <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
+                                  <IconPlus size={14} strokeWidth={2} />
+                                  {t("button.addQuoteSupplier")}
+                                </button>
+                              </div>
+                              <p className="quote-line-suppliers-help">{t("quote.supplierHelp")}</p>
+                              <div className="quote-line-supplier-list">
+                                {lineSuppliers.map((supplier, supplierIndex) => (
+                                  <div className="quote-line-supplier-row" key={`${line.id ?? index}-supplier-${supplierIndex}`} data-quote-line-supplier-index={supplierIndex}>
+                                    <input
+                                      list="quote-supplier-options"
+                                      value={supplier}
+                                      onChange={(event) => setQuoteLineSupplierValue(index, supplierIndex, event.target.value)}
+                                      placeholder={t("form.quoteSupplierPlaceholder")}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="action-link delete"
+                                      onClick={() => removeQuoteLineSupplier(index, supplierIndex)}
+                                      disabled={lineSuppliers.length === 1 && !supplier.trim()}
+                                    >
+                                      <IconTrash size={14} strokeWidth={2} />
+                                    </button>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           </div>
                         );
                       })}
+                      <datalist id="quote-supplier-options">
+                        {supplierNameOptions.map((supplierName) => (
+                          <option key={supplierName} value={supplierName} />
+                        ))}
+                      </datalist>
                     </div>
                   </section>
 
@@ -5041,14 +5100,25 @@ function generatePIFromQuote(quote: Quote) {
                       <strong>{t("pi.imageTitle")}</strong>
                       <p>{t("pi.imageSubtitle")}</p>
                     </div>
+                    <button type="button" className="secondary-button tiny-button" onClick={() => setPIDraft((current) => ({ ...current, imageUrl: current.imageUrl || "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?auto=format&fit=crop&w=1200&q=80" }))}>
+                      <IconPhoto size={16} strokeWidth={2} />
+                      {t("pi.fillImage")}
+                    </button>
                   </div>
-                  <div className="pi-image-frame">
-                    {piDraft.imageUrl ? <img src={piDraft.imageUrl} alt={piDraft.itemCode || piDraft.piNo || "PI"} /> : <div className="pi-image-placeholder">{t("pi.imagePlaceholder")}</div>}
+                  <div className="product-image-panel">
+                    <div className="product-image-preview pi-image-frame">
+                      {piDraft.imageUrl ? <img src={piDraft.imageUrl} alt={piDraft.itemCode || piDraft.piNo || "PI"} /> : <div className="pi-image-placeholder">{t("pi.imagePlaceholder")}</div>}
+                    </div>
+                    <div className="product-image-controls">
+                      <label>
+                        <span>{t("pi.imageUpload")}</span>
+                        <input type="file" accept="image/*" onChange={handlePIImageUpload} />
+                      </label>
+                      <button type="button" className="secondary-button tiny-button" onClick={clearPIImage}>
+                        {t("pi.imageClear")}
+                      </button>
+                    </div>
                   </div>
-                  <label className="pi-image-input">
-                    <span>{t("pi.imageUrl")}</span>
-                    <input value={piDraft.imageUrl} onChange={(event) => setPIDraft({ ...piDraft, imageUrl: event.target.value })} placeholder="https://..." />
-                  </label>
                 </aside>
               </div>
 
@@ -5145,17 +5215,6 @@ function generatePIFromQuote(quote: Quote) {
                   {t("button.addPILine")}
                 </button>
               </section>
-
-              <div className="pi-footer-grid">
-                <label className="full-span">
-                  <span>{t("form.piPdfUrl")}</span>
-                  <input value={piDraft.pdfUrl} onChange={(event) => setPIDraft({ ...piDraft, pdfUrl: event.target.value })} placeholder="https://..." />
-                </label>
-                <label className="full-span">
-                  <span>{t("form.piNotes")}</span>
-                  <textarea rows={3} value={piDraft.notes} onChange={(event) => setPIDraft({ ...piDraft, notes: event.target.value })} />
-                </label>
-              </div>
 
               <section className="pi-timeline-editor">
                 <div className="editable-head">
