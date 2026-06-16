@@ -1461,6 +1461,18 @@ function App() {
     setPendingQuoteSupplierFocus({ rowIndex, supplierIndex: nextSupplierIndex });
   }
 
+  function saveQuoteLineSuppliers(rowIndex: number) {
+    setQuoteLines((current) =>
+      current.map((row, index) => {
+        if (index !== rowIndex) return row;
+        return {
+          ...row,
+          suppliers: normalizeQuoteSuppliers(row.suppliers).map((supplier) => supplier.trim()),
+        };
+      }),
+    );
+  }
+
   function removeQuoteLineSupplier(rowIndex: number, supplierIndex: number) {
     setQuoteLines((current) =>
       current.map((row, index) => {
@@ -4438,47 +4450,19 @@ function generatePIFromQuote(quote: Quote) {
                                   <>
                                     <label>
                                       <span>{quoteSpecFieldLabels.type}</span>
-                                      <select value={line.typeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "type", event.target.value)}>
-                                        <option value="">-</option>
-                                        {quoteSpecOptions.type.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      <input value={line.typeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "type", event.target.value)} placeholder="手动填写 TYPE" />
                                     </label>
                                     <label>
                                       <span>{quoteSpecFieldLabels.size}</span>
-                                      <select value={line.sizeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "size", event.target.value)}>
-                                        <option value="">-</option>
-                                        {quoteSpecOptions.size.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      <input value={line.sizeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "size", event.target.value)} placeholder="手动填写 SIZE" />
                                     </label>
                                     <label>
                                       <span>{quoteSpecFieldLabels.color}</span>
-                                      <select value={line.colorValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "color", event.target.value)}>
-                                        <option value="">-</option>
-                                        {quoteSpecOptions.color.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      <input value={line.colorValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "color", event.target.value)} placeholder="手动填写 COLOR" />
                                     </label>
                                     <label>
                                       <span>{quoteSpecFieldLabels.finished}</span>
-                                      <select value={line.finishedValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "finished", event.target.value)}>
-                                        <option value="">-</option>
-                                        {quoteSpecOptions.finished.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
-                                      </select>
+                                      <input value={line.finishedValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "finished", event.target.value)} placeholder="手动填写 FINISHED" />
                                     </label>
                                     <label className="quote-line-remarks">
                                       <span>REMARKS</span>
@@ -4583,10 +4567,15 @@ function generatePIFromQuote(quote: Quote) {
                             <div className="quote-line-suppliers">
                               <div className="quote-line-suppliers-head">
                                 <span>{t("form.quoteSuppliers")}</span>
-                                <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
-                                  <IconPlus size={14} strokeWidth={2} />
-                                  {t("button.addQuoteSupplier")}
-                                </button>
+                                <div className="quote-line-suppliers-actions">
+                                  <button type="button" className="secondary-button tiny-button" onClick={() => saveQuoteLineSuppliers(index)}>
+                                    {t("button.save")}
+                                  </button>
+                                  <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
+                                    <IconPlus size={14} strokeWidth={2} />
+                                    {t("button.addQuoteSupplier")}
+                                  </button>
+                                </div>
                               </div>
                               <p className="quote-line-suppliers-help">{t("quote.supplierHelp")}</p>
                               <div className="quote-line-supplier-list">
