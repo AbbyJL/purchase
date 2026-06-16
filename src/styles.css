@@ -4516,6 +4516,13 @@ a {
   text-transform: uppercase;
 }
 
+.quote-line-suppliers-help {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: rgba(97, 114, 129, 0.9);
+}
+
 .quote-line-supplier-list {
   display: flex;
   flex-wrap: wrap;

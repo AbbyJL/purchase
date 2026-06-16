@@ -4559,6 +4559,7 @@ function generatePIFromQuote(quote: Quote) {
                                   {t("button.addQuoteSupplier")}
                                 </button>
                               </div>
+                              <p className="quote-line-suppliers-help">{t("quote.supplierHelp")}</p>
                               <div className="quote-line-supplier-list">
                                 {lineSuppliers.map((supplier, supplierIndex) => (
                                   <div className="quote-line-supplier-row" key={`${line.id ?? index}-supplier-${supplierIndex}`} data-quote-line-supplier-index={supplierIndex}>
