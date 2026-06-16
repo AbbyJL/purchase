@@ -659,7 +659,7 @@ function createQuoteCostItems(): QuoteCostItem[] {
 }
 
 function normalizeQuoteSuppliers(value?: string[] | null) {
-  const suppliers = (value ?? []).map((item) => String(item ?? "").trim()).filter(Boolean);
+  const suppliers = (value ?? []).map((item) => String(item ?? "").trim());
   return suppliers.length > 0 ? suppliers : [""];
 }
 
@@ -1370,6 +1370,7 @@ function App() {
   const [quoteTiers, setQuoteTiers] = useState<QuoteTier[]>([]);
   const [quotePreviewQty, setQuotePreviewQty] = useState("1M");
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [pendingQuoteSupplierFocus, setPendingQuoteSupplierFocus] = useState<{ rowIndex: number; supplierIndex: number } | null>(null);
   const [developmentDraft, setDevelopmentDraft] = useState<DevelopmentDraft>(emptyDevelopmentDraft);
   const [developmentLines, setDevelopmentLines] = useState<DevelopmentLineDraft[]>([]);
   const [editingDevelopmentId, setEditingDevelopmentId] = useState<string | null>(null);
@@ -1450,16 +1451,19 @@ function App() {
   }
 
   function addQuoteLineSupplier(rowIndex: number) {
+    let nextSupplierIndex = 0;
     setQuoteLines((current) =>
-      current.map((row, index) =>
-        index === rowIndex
-          ? {
-              ...row,
-              suppliers: [...normalizeQuoteSuppliers(row.suppliers), ""],
-            }
-          : row,
-      ),
+      current.map((row, index) => {
+        if (index !== rowIndex) return row;
+        const suppliers = [...normalizeQuoteSuppliers(row.suppliers), ""];
+        nextSupplierIndex = suppliers.length - 1;
+        return {
+          ...row,
+          suppliers,
+        };
+      }),
     );
+    setPendingQuoteSupplierFocus({ rowIndex, supplierIndex: nextSupplierIndex });
   }
 
   function removeQuoteLineSupplier(rowIndex: number, supplierIndex: number) {
@@ -1628,6 +1632,10 @@ function App() {
     return findProductMatchByCode(products, line.productCode)?.product.id ?? products.find((item) => item.name === line.productName)?.id ?? "";
   }
 
+  const supplierNameOptions = useMemo(() => {
+    return Array.from(new Set(suppliers.map((item) => item.name.trim()).filter(Boolean)));
+  }, [suppliers]);
+
   const pageTitleKey =
     currentPage === "products"
       ? "page.products"
@@ -1662,6 +1670,21 @@ function App() {
     setNotice(t("notice.quoteAccessDenied"));
     navigate("/dashboard", { replace: true });
   }, [currentPage, navigate, quoteAccessGranted, t]);
+
+  useEffect(() => {
+    if (!pendingQuoteSupplierFocus) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const selector = `[data-quote-line-index="${pendingQuoteSupplierFocus.rowIndex}"] [data-quote-line-supplier-index="${pendingQuoteSupplierFocus.supplierIndex}"] input`;
+      const input = document.querySelector<HTMLInputElement>(selector);
+      if (!input) return;
+      input.focus();
+      input.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      setPendingQuoteSupplierFocus(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingQuoteSupplierFocus, quoteLines]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4282,7 +4305,7 @@ function generatePIFromQuote(quote: Quote) {
                         const hasCostItems = (line.costItems ?? []).length > 0;
                         const lineSuppliers = normalizeQuoteSuppliers(line.suppliers);
                         return (
-                          <div className="quote-line-group" key={line.id ?? index}>
+                          <div className="quote-line-group" key={line.id ?? index} data-quote-line-index={index}>
                             <div className="quote-line-row">
                               <label className="quote-line-check">
                                 <input type="checkbox" checked={Boolean(line.checked)} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, checked: event.target.checked } : row)))} />
@@ -4349,34 +4372,6 @@ function generatePIFromQuote(quote: Quote) {
                                     <option key={`${line.id ?? index}-${option}`} value={option} />
                                   ))}
                                 </datalist>
-                                <div className="quote-line-suppliers">
-                                  <div className="quote-line-suppliers-head">
-                                    <span>{t("form.quoteSuppliers")}</span>
-                                    <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
-                                      <IconPlus size={14} strokeWidth={2} />
-                                      {t("button.addQuoteSupplier")}
-                                    </button>
-                                  </div>
-                                  <div className="quote-line-supplier-list">
-                                    {lineSuppliers.map((supplier, supplierIndex) => (
-                                      <div className="quote-line-supplier-row" key={`${line.id ?? index}-supplier-${supplierIndex}`}>
-                                        <input
-                                          value={supplier}
-                                          onChange={(event) => setQuoteLineSupplierValue(index, supplierIndex, event.target.value)}
-                                          placeholder={t("form.quoteSupplierPlaceholder")}
-                                        />
-                                        <button
-                                          type="button"
-                                          className="action-link delete"
-                                          onClick={() => removeQuoteLineSupplier(index, supplierIndex)}
-                                          disabled={lineSuppliers.length === 1 && !supplier.trim()}
-                                        >
-                                          <IconTrash size={14} strokeWidth={2} />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
                               </div>
                               <input type="number" min="0" step="0.01" value={line.price} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, price: Number(event.target.value) } : row)))} placeholder="0" />
                               <input type="number" min="0" step="1" value={line.sample} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, sample: Number(event.target.value) } : row)))} placeholder="0" />
@@ -4556,9 +4551,43 @@ function generatePIFromQuote(quote: Quote) {
                                 </button>
                               </div>
                             </div>
+                            <div className="quote-line-suppliers">
+                              <div className="quote-line-suppliers-head">
+                                <span>{t("form.quoteSuppliers")}</span>
+                                <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
+                                  <IconPlus size={14} strokeWidth={2} />
+                                  {t("button.addQuoteSupplier")}
+                                </button>
+                              </div>
+                              <div className="quote-line-supplier-list">
+                                {lineSuppliers.map((supplier, supplierIndex) => (
+                                  <div className="quote-line-supplier-row" key={`${line.id ?? index}-supplier-${supplierIndex}`} data-quote-line-supplier-index={supplierIndex}>
+                                    <input
+                                      list="quote-supplier-options"
+                                      value={supplier}
+                                      onChange={(event) => setQuoteLineSupplierValue(index, supplierIndex, event.target.value)}
+                                      placeholder={t("form.quoteSupplierPlaceholder")}
+                                    />
+                                    <button
+                                      type="button"
+                                      className="action-link delete"
+                                      onClick={() => removeQuoteLineSupplier(index, supplierIndex)}
+                                      disabled={lineSuppliers.length === 1 && !supplier.trim()}
+                                    >
+                                      <IconTrash size={14} strokeWidth={2} />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
                           </div>
                         );
                       })}
+                      <datalist id="quote-supplier-options">
+                        {supplierNameOptions.map((supplierName) => (
+                          <option key={supplierName} value={supplierName} />
+                        ))}
+                      </datalist>
                     </div>
                   </section>
 
