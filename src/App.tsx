@@ -4385,7 +4385,10 @@ function generatePIFromQuote(quote: Quote) {
                                 {line.imageUrl ? <img src={line.imageUrl} alt={line.productName || line.productCode || "quote line"} /> : <div className="quote-line-thumb placeholder"><IconPhoto size={18} strokeWidth={2} /></div>}
                                 <div className="quote-line-image-upload">
                                   <span>上传图片</span>
-                                  <input type="file" accept="image/*" onChange={(event) => void handleQuoteLineImageUpload(index, event)} />
+                                  <label className="quote-line-upload-button">
+                                    选择文件
+                                    <input type="file" accept="image/*" onChange={(event) => void handleQuoteLineImageUpload(index, event)} />
+                                  </label>
                                 </div>
                               </label>
                               <div className="quote-line-item">

@@ -2699,13 +2699,28 @@ a {
   color: var(--muted);
 }
 
-.quote-line-image-upload input[type="file"] {
+.quote-line-upload-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 34px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-radius: 9px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.92);
   color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.quote-line-upload-button input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .quote-line-item {
