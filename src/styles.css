@@ -2858,6 +2858,42 @@ a {
   background: rgba(248, 250, 252, 0.9);
 }
 
+.quote-spec-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.quote-spec-panel .editable-head {
+  margin-bottom: 0;
+}
+
+.quote-spec-config {
+  display: grid;
+  gap: 10px;
+}
+
+.quote-spec-config-row {
+  display: grid;
+  grid-template-columns: 92px minmax(180px, 0.8fr) minmax(200px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.quote-spec-config-row span {
+  font-size: 0.84rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.quote-spec-config-row input {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--text);
+}
+
 .editable-head {
   display: flex;
   align-items: center;

@@ -3976,6 +3976,36 @@ function generatePIFromQuote(quote: Quote) {
                 </div>
               </section>
 
+              <section className="editable-block quote-spec-panel">
+                <div className="editable-head">
+                  <div>
+                    <strong>{t("form.productSpecOptions")}</strong>
+                    <p>{t("form.productSpecOptionsHelp")}</p>
+                  </div>
+                </div>
+                <div className="quote-spec-config">
+                  {(Object.keys(quoteSpecFieldLabels) as QuoteSpecField[]).map((field) => (
+                    <div className="quote-spec-config-row" key={field}>
+                      <span>{quoteSpecFieldLabels[field]}</span>
+                      <input
+                        list={`quote-spec-${field}-options`}
+                        value={quoteSpecNewValues[field]}
+                        onChange={(event) => setQuoteSpecNewValues((current) => ({ ...current, [field]: event.target.value }))}
+                        placeholder={`直接输入 ${quoteSpecFieldLabels[field]} 选项`}
+                      />
+                      <datalist id={`quote-spec-${field}-options`}>
+                        {quoteSpecOptions[field].map((option) => (
+                          <option key={option} value={option} />
+                        ))}
+                      </datalist>
+                      <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteSpecOption(field)}>
+                        {t("button.addSpecOption")}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
               <div className="product-image-panel">
                 <div className="product-image-preview">
                   {productDraft.imageUrl ? (
