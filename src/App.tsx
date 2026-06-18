@@ -487,6 +487,7 @@ const emptyQuoteLineDraft: QuoteLineDraft = {
   finishedValue: "",
   remarksValue: "",
   pricingNotes: "",
+  cost: "",
   costItems: createQuoteCostItems(),
 };
 
@@ -639,6 +640,15 @@ const emptyCraftDraft: PODraft = {
 
 function createRowId(prefix: string) {
   return `${prefix}${Date.now().toString().slice(-6)}`;
+}
+
+function createPINo() {
+  return `PI${Date.now().toString().slice(-7)}`;
+}
+
+function normalizePINo(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits ? `PI${digits}` : createPINo();
 }
 
 function createLineItemId() {
@@ -1934,7 +1944,11 @@ function App() {
 
   function startCreatePI() {
     setEditingPIId(null);
-    setPIDraft(emptyPIDraft);
+    setPIDraft({
+      ...emptyPIDraft,
+      piNo: createPINo(),
+      plNo: createRowId("PL"),
+    });
     setPILines([{ id: createLineItemId(), productCode: "", productName: "", supplier: "", quantity: 1, unitPrice: 0 }]);
     setPISizeDetails([
       { id: createLineItemId(), size: "14-36", quantity: 20000 },
@@ -2710,7 +2724,7 @@ function App() {
       }));
     const draft = {
       id: editingPIId ?? createRowId("PI"),
-      piNo: piDraft.piNo.trim() || createRowId("PI"),
+      piNo: normalizePINo(piDraft.piNo.trim()),
       plNo: piDraft.plNo.trim(),
       customer: piDraft.customer.trim(),
       brand: piDraft.brand.trim(),
@@ -2820,7 +2834,7 @@ function generatePIFromQuote(quote: Quote) {
     setEditingPIId(null);
     setPIDraft({
       ...emptyPIDraft,
-      piNo: createRowId("PI"),
+      piNo: createPINo(),
       plNo: createRowId("PL"),
       customer: quote.customer,
       brand: quote.brand,
@@ -2879,7 +2893,7 @@ function generatePIFromQuote(quote: Quote) {
     setEditingPIId(null);
     setPIDraft({
       ...emptyPIDraft,
-      piNo: createRowId("PI"),
+      piNo: createPINo(),
       plNo: createRowId("PL"),
       customer: order.customer,
       brand: "",
@@ -4985,7 +4999,7 @@ function generatePIFromQuote(quote: Quote) {
                   </label>
                   <label>
                     <span>{t("form.piNo")}</span>
-                    <input value={piDraft.piNo} onChange={(event) => setPIDraft({ ...piDraft, piNo: event.target.value })} />
+                    <input value={piDraft.piNo} onChange={(event) => setPIDraft({ ...piDraft, piNo: event.target.value })} placeholder="PI2603428" />
                   </label>
                   <label>
                     <span>{t("form.piCustomer")}</span>

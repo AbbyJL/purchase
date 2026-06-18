@@ -348,7 +348,7 @@ export const seedDevelopments = [
 export const seedPIs = [
   {
     id: "PI001",
-    piNo: "PO2603428",
+    piNo: "PI2603428",
     plNo: "PL2603428",
     customer: "KITH",
     brand: "KITH",

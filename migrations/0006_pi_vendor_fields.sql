@@ -5,7 +5,7 @@ ALTER TABLE pis ADD COLUMN deliver_to TEXT NOT NULL DEFAULT '';
 
 UPDATE pis
 SET
-  pi_no = 'PO2603428',
+  pi_no = 'PI2603428',
   customer = 'KITH',
   brand = 'KITH',
   vendor = '浙江嘉兴市壹佳印刷有限公司',
