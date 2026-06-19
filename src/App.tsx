@@ -1899,7 +1899,7 @@ function App() {
     }
     setEditingQuoteId(null);
     const template = createQuoteSheetTemplate();
-    setQuoteDraft(template.draft);
+    setQuoteDraft({ ...template.draft, quoteNo: createQuoteId(quotes) });
     setQuoteLines(template.lines.map((line) => normalizeQuoteLineDraft(line)));
     setQuoteTiers(template.tiers);
     setQuotePreviewQty("1M");
@@ -6082,14 +6082,15 @@ function QuotesPage({
           </div>
         </div>
         <Table
-          columns={[t("table.quoteId"), t("table.quoteBrand"), t("table.customer"), t("table.quoteProduct"), t("table.quoteTier"), t("table.status"), t("table.actions")]}
+          columns={[t("table.quoteId"), "PI 号", t("table.quoteBrand"), t("table.customer"), t("table.quoteProduct"), t("table.quoteTier"), t("table.status"), t("table.actions")]}
           rows={quotes.map((item) => {
             const tier = calculateQuoteTier(item.tiers, quantityPreview);
             const unitPrice = getQuoteUnitPrice(item, quantityPreview);
             const total = parseQuantityValue(quantityPreview) * unitPrice;
             const firstLine = item.lines[0];
             return [
-              item.quoteNo || item.id,
+              <span key={`${item.id}-quoteNo`} style={{ fontFamily: "monospace", color: "#1677ff", fontWeight: 600 }}>{item.quoteNo}</span>,
+              item.piNo ? <span key={`${item.id}-piNo`} style={{ fontFamily: "monospace" }}>{item.piNo}</span> : <span key={`${item.id}-piNo`} style={{ color: "#bbb" }}>—</span>,
               item.brand,
               <div key={`${item.id}-customer`}>
                 <strong>{item.customer}</strong>
