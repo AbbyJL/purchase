@@ -2888,6 +2888,77 @@ function generatePIFromQuote(quote: Quote) {
     setActiveModal("pi");
   }
 
+  function previewPIFromQuote(quote: Quote) {
+    const now = new Date().toISOString();
+    const firstQuoteLine = quote.lines[0];
+    const quoteQty = quote.lines.reduce((sum, line) => {
+      const lineQty = Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1"));
+      return sum + lineQty;
+    }, 0);
+    const normalizedQuoteLines = quote.lines
+      .filter((line) => line.productCode.trim() || line.productName.trim() || line.description.trim())
+      .map((line) => ({
+        id: line.id ?? createLineItemId(),
+        productCode: line.productCode.trim(),
+        productName: line.productName.trim(),
+        supplier: line.suppliers?.find((item) => item.trim()) ?? products.find((item) => item.id === line.productCode.trim() || item.name === line.productName.trim())?.suppliers[0] ?? "",
+        quantity: Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
+        unitPrice: Number(line.price || 0) || getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1"),
+      }));
+    const firstLine = normalizedQuoteLines[0] ?? firstQuoteLine;
+    const previewId = `preview_${quote.id}`;
+    const previewPI: PIRecord = {
+      id: previewId,
+      piNo: quote.piNo || quote.quoteNo || previewId,
+      plNo: `PREVIEW-${createRowId("PL")}`,
+      customer: quote.customer,
+      brand: quote.brand,
+      vendor: "",
+      ourRefNo: quote.quoteNo,
+      deliveryDate: "",
+      deliverTo: "",
+      status: "Draft",
+      generatedAt: now,
+      generatedBy: "Preview",
+      purchaseGeneratedAt: "",
+      financeApprovedAt: "",
+      packingInfoGeneratedAt: "",
+      commercialInvoiceGeneratedAt: "",
+      paymentConfirmedAt: "",
+      pdfUrl: "",
+      orderQty: quoteQty || 0,
+      deductedQty: 0,
+      outstandingQty: quoteQty || 0,
+      inStockQty: quoteQty || 0,
+      stockOutQty: quoteQty || 0,
+      itemCode: quote.productCode || firstLine?.productCode || "",
+      description: quote.item || quote.productName || firstLine?.productName || "",
+      productType: quote.itemType || quote.productName || "",
+      size: "",
+      colors: "",
+      finished: "",
+      remarks: quote.notes || "",
+      imageUrl: quote.imageUrl || firstQuoteLine?.imageUrl || "",
+      sizeDetails: [],
+      lines: normalizedQuoteLines.length
+        ? normalizedQuoteLines
+        : [{
+            id: createLineItemId(),
+            productCode: quote.productCode || firstLine?.productCode || "",
+            productName: quote.productName || firstLine?.productName || "",
+            supplier: firstLine?.supplier ?? products.find((item) => item.id === quote.productCode || item.name === quote.productName || item.id === firstLine?.productCode || item.name === firstLine?.productName)?.suppliers[0] ?? "",
+            quantity: Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
+            unitPrice: getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1") || Number(firstQuoteLine?.price) || 0,
+          }],
+      notes: `Preview from quote ${quote.id}`,
+    };
+    setPIs((current) => {
+      const withoutPreview = current.filter((p) => p.id !== previewId);
+      return [previewPI, ...withoutPreview];
+    });
+    navigate(`/pis/preview?pi=${encodeURIComponent(previewId)}`);
+  }
+
   function generatePIFromOrder(order: Order) {
     const now = new Date().toISOString();
     setEditingPIId(null);
@@ -3669,7 +3740,7 @@ function generatePIFromQuote(quote: Quote) {
                 onEditQuote={startEditQuote}
                 onDeleteQuote={removeQuote}
                 onGeneratePI={generatePIFromQuote}
-                onPreviewPI={generatePIFromQuote}
+                onPreviewPI={previewPIFromQuote}
                 quantityPreview={quotePreviewQty}
                 setQuantityPreview={setQuotePreviewQty}
               />
