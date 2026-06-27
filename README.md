@@ -25,3 +25,4 @@ npm run dev
 - Add D1 for structured business data
 - Add R2 for contracts, images, and attachments
 - Sample images upload through `/api/uploads` and are served back from R2
+
