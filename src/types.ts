@@ -105,6 +105,7 @@ export interface QuoteLine {
 export interface Quote {
   id: string;
   quoteNo: string;
+  piNo?: string;
   date: string;
   modificationDate: string;
   register: string;
