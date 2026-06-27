@@ -79,6 +79,7 @@ import {
   suppliers as fallbackSuppliers,
 } from "./data";
 import { translate } from "./i18n";
+import QuoteForm from "./QuoteForm";
 import type { Brand, Contract, Customer, DevelopmentLine, DevelopmentRecord, Locale, Order, PIRecord, PORecord, POType, PrintMethod, ProofType, PostProcess, Product, Quote, QuoteCostItem, QuoteLine, QuoteTier, Supplier, PILineItem } from "./types";
 
 const navItems = [
@@ -168,6 +169,7 @@ type SupplierDraft = {
 type QuoteDraft = {
   id?: string;
   quoteNo: string;
+  piNo?: string;
   date: string;
   modificationDate: string;
   register: string;
@@ -378,6 +380,7 @@ const emptySupplierDraft: SupplierDraft = {
 
 const emptyQuoteDraft: QuoteDraft = {
   quoteNo: "",
+  piNo: "",
   date: new Date().toISOString().slice(0, 10),
   modificationDate: new Date().toISOString().slice(0, 10),
   register: "",
@@ -638,17 +641,44 @@ const emptyCraftDraft: PODraft = {
   craftNotes: "",
 };
 
+function createQuoteId(quotes: Quote[], date?: string) {
+  // 优先使用传入的日期（来自「日期」字段），否则用当前时间
+  const refDate = date && date.trim() ? new Date(date) : new Date();
+  const yy = String(refDate.getFullYear()).slice(-2);
+  const mm = String(refDate.getMonth() + 1).padStart(2, "0");
+  const prefix = `QU${yy}${mm}`;
+  const existing = quotes
+    .map((q) => q.quoteNo || "")
+    .filter((n) => n.startsWith(prefix))
+    .map((n) => parseInt(n.replace(prefix, ""), 10))
+    .filter((n) => !isNaN(n));
+  const next = existing.length ? Math.max(...existing) + 1 : 1;
+  return `${prefix}${String(next).padStart(3, "0")}`;
+}
+
 function createRowId(prefix: string) {
   return `${prefix}${Date.now().toString().slice(-6)}`;
 }
 
-function createPINo() {
-  return `PI${Date.now().toString().slice(-7)}`;
+function createPINo(pis: PIRecord[] = [], date?: string) {
+  // 优先使用传入的日期（来自「日期」字段），否则用当前时间
+  const refDate = date && date.trim() ? new Date(date) : new Date();
+  const yy = String(refDate.getFullYear()).slice(-2);
+  const mm = String(refDate.getMonth() + 1).padStart(2, "0");
+  const prefix = `PI${yy}${mm}`;
+  const existing = pis
+    .map((p) => p.piNo || "")
+    .filter((n) => n.startsWith(prefix))
+    .map((n) => parseInt(n.replace(prefix, ""), 10))
+    .filter((n) => !isNaN(n));
+  const next = existing.length ? Math.max(...existing) + 1 : 1;
+  return `${prefix}${String(next).padStart(3, "0")}`;
 }
 
-function normalizePINo(value: string) {
+function normalizePINo(value: string, pis: PIRecord[] = [], date?: string) {
   const digits = value.replace(/\D/g, "");
-  return digits ? `PI${digits}` : createPINo();
+  if (digits) return `PI${digits}`;
+  return createPINo(pis, date);
 }
 
 function createLineItemId() {
@@ -1361,6 +1391,17 @@ function App() {
   const [contracts, setContracts] = useState(fallbackContracts);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [globalSearchResults, setGlobalSearchResults] = useState<Array<{
+    module: string;
+    label: string;
+    sub: string;
+    path: string;
+  }>>([]);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const globalSearchInputRef = useRef<HTMLInputElement>(null);
+  const globalSearchDropdownRef = useRef<HTMLDivElement>(null);
+  const globalSearchActiveIndex = useRef(-1);
   const [activeModal, setActiveModal] = useState<ModalKind | null>(null);
   const [productDraft, setProductDraft] = useState<ProductDraft>(emptyDraft);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -1402,6 +1443,108 @@ function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const t = (key: string) => translate(locale, key);
+
+  function performGlobalSearch(query: string) {
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      setGlobalSearchResults([]);
+      setGlobalSearchOpen(false);
+      return;
+    }
+    const results: Array<{ module: string; label: string; sub: string; path: string }> = [];
+
+    const match = (text: string) => text.toLowerCase().includes(q);
+
+    for (const item of products) {
+      if (match(item.id) || match(item.name) || match(item.codePrefix)) {
+        results.push({ module: "product", label: `${item.id} · ${item.name}`, sub: `样品 · ${item.categoryKey}`, path: "/products" });
+      }
+    }
+
+    for (const item of brands) {
+      if (match(item.name) || match(item.code) || match(item.customer)) {
+        results.push({ module: "brand", label: `${item.code} · ${item.name}`, sub: `品牌 · 客户: ${item.customer}`, path: "/brands" });
+      }
+    }
+
+    for (const item of customers) {
+      if (match(item.name) || match(item.code) || match(item.country)) {
+        results.push({ module: "customer", label: `${item.code} · ${item.name}`, sub: `客户 · ${item.country}`, path: "/customers" });
+      }
+    }
+
+    for (const item of suppliers) {
+      if (match(item.name) || match(item.code) || match(item.country)) {
+        results.push({ module: "supplier", label: `${item.code} · ${item.name}`, sub: `供应商 · ${item.country}`, path: "/suppliers" });
+      }
+    }
+
+    for (const item of quotes) {
+      const piNo = item.piNo || item.quoteNo || "";
+      if (match(piNo) || match(item.brand) || match(item.customer) || match(item.item) || match(item.productCode) || match(item.productName)) {
+        results.push({ module: "quote", label: `${piNo || item.quoteNo} · ${item.brand}`, sub: `报价 · ${item.customer}`, path: "/quotes" });
+      }
+    }
+
+    for (const item of pis) {
+      if (match(item.piNo) || match(item.customer) || match(item.brand) || match(item.itemCode) || match(item.description)) {
+        results.push({ module: "pi", label: `${item.piNo} · ${item.customer}`, sub: `PI · ${item.brand}`, path: "/pis" });
+      }
+    }
+
+    for (const item of pos) {
+      if (match(item.poNo) || match(item.vendor) || match(item.sourcePiId)) {
+        results.push({ module: "po", label: `${item.poNo} · ${item.vendor}`, sub: `PO · 来源: ${item.sourcePiId}`, path: "/po" });
+      }
+    }
+
+    for (const item of orders) {
+      if (match(item.customer) || match(item.product) || match(item.channel)) {
+        results.push({ module: "order", label: `${item.id} · ${item.customer}`, sub: `订单 · ${item.status}`, path: "/orders" });
+      }
+    }
+
+    for (const item of contracts) {
+      if (match(item.title) || match(item.client)) {
+        results.push({ module: "contract", label: `${item.title}`, sub: `合同 · ${item.client}`, path: "/contracts" });
+      }
+    }
+
+    setGlobalSearchResults(results.slice(0, 30));
+    setGlobalSearchOpen(true);
+    globalSearchActiveIndex.current = -1;
+  }
+
+  function navigateToSearchResult(path: string) {
+    setGlobalSearchOpen(false);
+    setGlobalSearchQuery("");
+    navigate(path);
+  }
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        globalSearchInputRef.current?.focus();
+      }
+      if (e.key === "Escape") {
+        setGlobalSearchOpen(false);
+        globalSearchInputRef.current?.blur();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (globalSearchDropdownRef.current && !globalSearchDropdownRef.current.contains(e.target as Node) && !globalSearchInputRef.current?.contains(e.target as Node)) {
+        setGlobalSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
 
   const currentPage = useMemo(() => {
     if (location.pathname.startsWith("/pis/preview")) return "pi-preview";
@@ -1899,7 +2042,9 @@ function App() {
     }
     setEditingQuoteId(null);
     const template = createQuoteSheetTemplate();
-    setQuoteDraft({ ...template.draft, quoteNo: createQuoteId(quotes) });
+    const today = new Date().toISOString().slice(0, 10);
+    const piNo = createPIId(pis, today);
+    setQuoteDraft({ ...template.draft, date: today, quoteNo: createQuoteId(quotes, today), piNo });
     setQuoteLines(template.lines.map((line) => normalizeQuoteLineDraft(line)));
     setQuoteTiers(template.tiers);
     setQuotePreviewQty("1M");
@@ -1917,6 +2062,7 @@ function App() {
     setQuoteDraft({
       id: quote.id,
       quoteNo: quote.quoteNo,
+      piNo: quote.piNo || "",
       date: quote.date,
       modificationDate: quote.modificationDate,
       register: quote.register,
@@ -1946,7 +2092,7 @@ function App() {
     setEditingPIId(null);
     setPIDraft({
       ...emptyPIDraft,
-      piNo: createPINo(),
+      piNo: createPINo(pis),
       plNo: createRowId("PL"),
     });
     setPILines([{ id: createLineItemId(), productCode: "", productName: "", supplier: "", quantity: 1, unitPrice: 0 }]);
@@ -2834,7 +2980,7 @@ function generatePIFromQuote(quote: Quote) {
     setEditingPIId(null);
     setPIDraft({
       ...emptyPIDraft,
-      piNo: createPINo(),
+      piNo: createPINo(pis),
       plNo: createRowId("PL"),
       customer: quote.customer,
       brand: quote.brand,
@@ -2964,7 +3110,7 @@ function generatePIFromQuote(quote: Quote) {
     setEditingPIId(null);
     setPIDraft({
       ...emptyPIDraft,
-      piNo: createPINo(),
+      piNo: createPINo(pis),
       plNo: createRowId("PL"),
       customer: order.customer,
       brand: "",
@@ -3115,16 +3261,97 @@ function generatePIFromQuote(quote: Quote) {
     }
   }
 
-  function startCreatePO(sourcePi?: PIRecord) {
+  function createPONo(existingPOs: PORecord[] = [], date?: string) {
+    const refDate = date && date.trim() ? new Date(date) : new Date();
+    const yy = String(refDate.getFullYear()).slice(-2);
+    const prefix = `PO${yy}`;
+    const existing = existingPOs
+      .map((p) => p.poNo || "")
+      .filter((n) => n.startsWith(prefix))
+      .map((n) => parseInt(n.replace(prefix, ""), 10))
+      .filter((n) => !isNaN(n));
+    const next = existing.length ? Math.max(...existing) + 1 : 1;
+    return `${prefix}${String(next).padStart(4, "0")}`;
+  }
+
+  function startCreatePO(sourcePi?: PIRecord, vendorName?: string) {
     setEditingPoId(null);
     setPODraft(sourcePi ? {
       ...emptyPODraft,
       sourcePiId: sourcePi.id,
       customer: sourcePi.customer,
       plNo: sourcePi.plNo || createRowId("PL"),
+      vendor: vendorName ?? "",
     } : { ...emptyPODraft });
     setNotice(null);
     setActiveModal("po");
+  }
+
+  function generatePOsFromPI(pi: PIRecord, vendorNames: string[]) {
+    // 为每个供应商生成一张 PO
+    const now = new Date().toISOString();
+    const newPOs: PORecord[] = vendorNames.map((vendor) => {
+      const poNo = createPONo(pos);
+      return {
+        id: `po_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        poType: "purchase" as const,
+        poNo,
+        plNo: pi.plNo || createRowId("PL"),
+        sourcePiId: pi.id,
+        sourcePiNo: pi.piNo,
+        date: new Date().toISOString().slice(0, 10),
+        vendor,
+        vendorAddress: suppliers.find((s) => s.name === vendor)?.address ?? "",
+        vendorContact: suppliers.find((s) => s.name === vendor)?.contact ?? "",
+        vendorEmail: suppliers.find((s) => s.name === vendor)?.email ?? "",
+        vendorTel: suppliers.find((s) => s.name === vendor)?.phone ?? "",
+        vendorFax: "",
+        customer: pi.customer,
+        ourRefNo: pi.piNo,
+        deliveryDate: pi.deliveryDate,
+        deliverTo: pi.deliverTo,
+        status: "Draft" as const,
+        itemCode: pi.itemCode,
+        description: pi.description,
+        productType: pi.productType,
+        size: pi.size,
+        colors: pi.colors,
+        finished: pi.finished,
+        remarks: pi.remarks,
+        notes: "",
+        imageUrl: pi.imageUrl,
+        orderNo: "",
+        maker: "",
+        makeDate: "",
+        styleNo: "",
+        customerOrderNo: "",
+        craftProductName: "",
+        relatedOrderNo: "",
+        sheetSize: "",
+        materialIn: "",
+        upCount: "",
+        quantity: 0,
+        remainder: 0,
+        finishedQty: 0,
+        packCount: "",
+        printMethod: [],
+        proofType: [],
+        craftRemarks: "",
+        craftNotes: "",
+        craftImageUrl: "",
+        createdAt: now,
+        updatedAt: now,
+      };
+    });
+    setPOs((current) => [...newPOs, ...current]);
+    // 更新 PI 的 sourcePoIds
+    setPIs((current) => current.map((p) => {
+      if (p.id !== pi.id) return p;
+      return { ...p, sourcePoIds: [...(p.sourcePoIds || []), ...newPOs.map((po) => po.id)] };
+    }));
+    // 持久化
+    newPOs.forEach((po) => apiCreatePO(po).catch(() => {}));
+    setNotice(`已生成 ${newPOs.length} 张采购单`);
   }
 
   function startCreateCraft() {
@@ -3505,13 +3732,13 @@ function generatePIFromQuote(quote: Quote) {
     });
     openCommercialInvoice(po.id);
   };
+  const [poGenSourcePi, setPoGenSourcePi] = useState<PIRecord | null>(null);
+  const [showPOCVendorModal, setShowPOCVendorModal] = useState(false);
+  const [poGenVendors, setPoGenVendors] = useState<string[]>([]);
+
   const openPurchaseOrderFromPI = (pi: PIRecord) => {
-    const po = getLinkedPOForPI(pi);
-    if (po) {
-      openPurchaseOrder(po.id);
-    } else {
-      startCreatePO(pi);
-    }
+    // 跳转到 PI 预览页，并自动弹出供应商选择弹窗
+    navigate(`/pis/preview?pi=${encodeURIComponent(pi.id)}&genpo=1`);
   };
 
   return (
@@ -3582,34 +3809,68 @@ function generatePIFromQuote(quote: Quote) {
             <h1>{t(pageTitleKey)}</h1>
           </div>
 
-          <div className="topbar-search">
+          <div className="topbar-search" ref={globalSearchDropdownRef}>
             <IconSearch size={16} strokeWidth={2} />
             <input
+              ref={globalSearchInputRef}
               type="search"
-              placeholder={
-                currentPage === "brands"
-                  ? t("search.brands")
-                  : currentPage === "customers"
-                    ? t("search.customers")
-                    : currentPage === "suppliers"
-                    ? t("search.suppliers")
-                  : currentPage === "quotes"
-                        ? t("search.quotes")
-                        : currentPage === "development"
-                          ? t("search.development")
-                  : currentPage === "pis"
-                    ? t("search.pis")
-                    : currentPage === "po" || currentPage === "po-detail"
-                      ? t("search.po")
-                      : currentPage === "commercial-invoices"
-                        ? t("search.commercialInvoices")
-                        : currentPage === "orders"
-                        ? t("search.orders")
-                            : currentPage === "contracts"
-                              ? t("search.contracts")
-                              : t("search.samples")
-              }
+              placeholder={t("search.global")}
+              value={globalSearchQuery}
+              onChange={(e) => {
+                setGlobalSearchQuery(e.target.value);
+                performGlobalSearch(e.target.value);
+              }}
+              onFocus={() => {
+                if (globalSearchQuery.trim()) {
+                  setGlobalSearchOpen(true);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  const next = Math.min(globalSearchActiveIndex.current + 1, globalSearchResults.length - 1);
+                  globalSearchActiveIndex.current = next;
+                  setGlobalSearchResults([...globalSearchResults]);
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const next = Math.max(globalSearchActiveIndex.current - 1, 0);
+                  globalSearchActiveIndex.current = next;
+                  setGlobalSearchResults([...globalSearchResults]);
+                } else if (e.key === "Enter" && globalSearchActiveIndex.current >= 0) {
+                  e.preventDefault();
+                  navigateToSearchResult(globalSearchResults[globalSearchActiveIndex.current].path);
+                }
+              }}
             />
+            {globalSearchQuery.trim() && (
+              <span className="topbar-search-kbd">⌘K</span>
+            )}
+            {globalSearchOpen && globalSearchResults.length > 0 && (
+              <div className="global-search-dropdown">
+                {globalSearchResults.map((result, index) => (
+                  <div
+                    key={`${result.module}-${result.path}-${index}`}
+                    className={`global-search-item ${index === globalSearchActiveIndex.current ? "active" : ""}`}
+                    onClick={() => navigateToSearchResult(result.path)}
+                    onMouseEnter={() => { globalSearchActiveIndex.current = index; setGlobalSearchResults([...globalSearchResults]); }}
+                  >
+                    <div className={`global-search-item-icon global-search-module-${result.module}`}>
+                      {(() => { const m = result.module; if (m === "product") return <IconBox size={14} strokeWidth={2} />; if (m === "brand") return <IconTag size={14} strokeWidth={2} />; if (m === "customer") return <IconUsers size={14} strokeWidth={2} />; if (m === "supplier") return <IconTruck size={14} strokeWidth={2} />; if (m === "quote" || m === "pi") return <IconFileInvoice size={14} strokeWidth={2} />; if (m === "po") return <IconReceipt2 size={14} strokeWidth={2} />; if (m === "order") return <IconBox size={14} strokeWidth={2} />; return <IconFileInvoice size={14} strokeWidth={2} />; })()}
+                    </div>
+                    <div className="global-search-item-text">
+                      <div className="global-search-item-label">{result.label}</div>
+                      <div className="global-search-item-sub">{result.sub}</div>
+                    </div>
+                    <span className={`global-search-item-badge global-search-badge-${result.module}`}>{t(`module.${result.module}`)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {globalSearchOpen && globalSearchQuery.trim() && globalSearchResults.length === 0 && (
+              <div className="global-search-dropdown">
+                <div className="global-search-empty">{t("search.noResults")}</div>
+              </div>
+            )}
           </div>
 
           <div className="topbar-actions">
@@ -4328,494 +4589,40 @@ function generatePIFromQuote(quote: Quote) {
         ) : null}
 
         {activeModal === "quote" ? (
-          <EditorModal className="quote-modal-card quote-workbench-modal" title={editingQuoteId ? t("form.editQuote") : t("form.createQuote")} onClose={closeModal}>
-            <form className="modal-form quote-sheet-form quote-workbench-form" onSubmit={submitQuoteDraft}>
-              <div className="quote-workbench-shell">
-                <main className="quote-workbench-main">
-                  <section className="quote-hero-panel">
-                    <div className="quote-hero-copy">
-                      <p className="quote-hero-eyebrow">{editingQuoteId ? t("form.editQuote") : t("form.createQuote")}</p>
-                      <h3>{quoteDraft.item || quoteDraft.itemType || t("page.quotes")}</h3>
-                      <p>{t("quote.sheetSubtitle")}</p>
-                    </div>
-                    <div className="quote-hero-actions">
-                      <button type="button" className="secondary-button tiny-button" onClick={() => document.getElementById("quote-lines-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-                        {t("button.addQuoteLine")}
-                      </button>
-                      <button type="button" className="secondary-button tiny-button" onClick={() => document.getElementById("quote-tiers-panel")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-                        {t("button.addQuoteTier")}
-                      </button>
-                    </div>
-                  </section>
-
-                  <section className="quote-header-panel">
-                    <div className="quote-header-grid quote-header-grid-top">
-                      <label>
-                        <span>{t("form.quoteNo")}</span>
-                        <input value={quoteDraft.quoteNo} onChange={(event) => setQuoteDraft({ ...quoteDraft, quoteNo: event.target.value })} placeholder="2606009" />
-                      </label>
-                      <label>
-                        <span>{t("form.quoteDate")}</span>
-                        <input type="date" value={quoteDraft.date} onChange={(event) => setQuoteDraft({ ...quoteDraft, date: event.target.value })} />
-                      </label>
-                      <label>
-                        <span>{t("form.quoteModificationDate")}</span>
-                        <input type="date" value={quoteDraft.modificationDate} onChange={(event) => setQuoteDraft({ ...quoteDraft, modificationDate: event.target.value })} />
-                      </label>
-                      <label>
-                        <span>{t("form.quoteRegister")}</span>
-                        <input value={quoteDraft.register} onChange={(event) => setQuoteDraft({ ...quoteDraft, register: event.target.value })} placeholder="朱佳毅" />
-                      </label>
-                    </div>
-                    <div className="quote-header-grid quote-header-grid-mid">
-                      <label className="full-span">
-                        <span>{t("form.quoteItemType")}</span>
-                        <input value={quoteDraft.itemType} onChange={(event) => setQuoteDraft({ ...quoteDraft, itemType: event.target.value })} placeholder="STONEY CLOVER LANE 感恩卡、信封和贴纸" />
-                      </label>
-                    </div>
-                    <div className="quote-header-grid quote-header-grid-bottom">
-                      <label>
-                        <span>{t("form.quoteBrand")}</span>
-                        <select value={quoteDraft.brand} onChange={(event) => setQuoteDraft({ ...quoteDraft, brand: event.target.value })}>
-                          <option value="">-</option>
-                          {brands.map((item) => (
-                            <option key={item.id} value={item.name}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        <span>{t("form.quoteLinkman")}</span>
-                        <input value={quoteDraft.linkman} onChange={(event) => setQuoteDraft({ ...quoteDraft, linkman: event.target.value })} placeholder="Anly" />
-                      </label>
-                      <label>
-                        <span>{t("form.quoteSalesperson")}</span>
-                        <input value={quoteDraft.salesperson} onChange={(event) => setQuoteDraft({ ...quoteDraft, salesperson: event.target.value })} placeholder="Jason" />
-                      </label>
-                      <label>
-                        <span>{t("form.quoteCustomer")}</span>
-                        <select value={quoteDraft.customer} onChange={(event) => setQuoteDraft({ ...quoteDraft, customer: event.target.value })}>
-                          <option value="">-</option>
-                          {customers.map((item) => (
-                            <option key={item.id} value={item.name}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    <div className="quote-header-grid quote-header-grid-image">
-                      <label className="full-span">
-                        <span>{t("form.quoteItem")}</span>
-                        <input value={quoteDraft.item} onChange={(event) => setQuoteDraft({ ...quoteDraft, item: event.target.value })} placeholder="信封 / 贴纸 / 纸卡" />
-                      </label>
-                      <div className="product-image-panel quote-image-panel full-span">
-                        <div className="product-image-preview">
-                          {quoteDraft.imageUrl ? (
-                            <img src={quoteDraft.imageUrl} alt={quoteDraft.item || t("form.quoteImagePreview")} />
-                          ) : (
-                            <div className="product-image-placeholder">
-                              <IconPhoto size={22} strokeWidth={1.8} />
-                              <span>{t("form.quoteImagePlaceholder")}</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="product-image-controls">
-                          <label>
-                            <span>{t("form.quoteImageUpload")}</span>
-                            <input type="file" accept="image/*" onChange={handleQuoteImageUpload} />
-                          </label>
-                          <button type="button" className="secondary-button tiny-button" onClick={clearQuoteImage}>
-                            {t("form.quoteImageClear")}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="quote-lines-panel" id="quote-lines-panel">
-                    <div className="editable-head">
-                      <div>
-                        <strong>{t("table.quoteLines")}</strong>
-                        <p>{t("quote.linesHelp")}</p>
-                      </div>
-                      <button type="button" className="secondary-button tiny-button" onClick={() => setQuoteLines((current) => [...current, createQuoteLine()])}>
-                        <IconPlus size={16} strokeWidth={2} />
-                        {t("button.addQuoteLine")}
-                      </button>
-                    </div>
-
-                    <div className="quote-lines-table">
-                      <div className="quote-lines-head">
-                        <span>CHECK</span>
-                        <span>IMAGE</span>
-                        <span>ITEM</span>
-                        <span>PRICE</span>
-                        <span>SAMPLE</span>
-                        <span>SPEC</span>
-                        <span>PRICING</span>
-                        <span className="cost-col-toggle">{t("form.quoteCostToggle")}</span>
-                      </div>
-                      {quoteLines.map((line, index) => {
-                        const hasCostItems = (line.costItems ?? []).length > 0;
-                        const lineSuppliers = normalizeQuoteSuppliers(line.suppliers);
-                        return (
-                          <div className="quote-line-group" key={line.id ?? index} data-quote-line-index={index}>
-                            <div className="quote-line-row">
-                              <label className="quote-line-check">
-                                <input type="checkbox" checked={Boolean(line.checked)} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, checked: event.target.checked } : row)))} />
-                              </label>
-                              <label className="quote-line-image">
-                                {line.imageUrl ? <img src={line.imageUrl} alt={line.productName || line.productCode || "quote line"} /> : <div className="quote-line-thumb placeholder"><IconPhoto size={18} strokeWidth={2} /></div>}
-                                <div className="quote-line-image-upload">
-                                  <span>上传图片</span>
-                                  <label className="quote-line-upload-button">
-                                    选择文件
-                                    <input type="file" accept="image/*" onChange={(event) => void handleQuoteLineImageUpload(index, event)} />
-                                  </label>
-                                </div>
-                              </label>
-                              <div className="quote-line-item">
-                                <select value={getQuoteLineProductId(line)} onChange={(event) => updateQuoteLineWithProduct(index, event.target.value)}>
-                                  <option value="">{t("form.lineSamplePlaceholder")}</option>
-                                  {products.map((product) => (
-                                    <option key={product.id} value={product.id}>
-                                      {getProductLabel(product)}
-                                    </option>
-                                  ))}
-                                </select>
-                                <input value={line.productName} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productName: event.target.value } : row)))} placeholder="产品名称" />
-                                <input
-                                  list={`quote-product-code-options-${index}`}
-                                  value={line.productCode}
-                                  onChange={(event) => {
-                                    const nextCode = event.target.value;
-                                    const match = findProductMatchByCode(products, nextCode);
-                                    setQuoteLines((current) =>
-                                      current.map((row, rowIndex) =>
-                                        rowIndex === index
-                                          ? match
-                                            ? {
-                                                ...row,
-                                                productCode: match.code,
-                                                productName: match.product.name,
-                                                suppliers: match.product.suppliers.length ? [...match.product.suppliers] : normalizeQuoteSuppliers(row.suppliers),
-                                                price: Number(match.product.price || 0),
-                                                imageUrl: row.imageUrl || match.product.imageUrl,
-                                              }
-                                            : { ...row, productCode: nextCode }
-                                          : row,
-                                      ),
-                                    );
-                                  }}
-                                  onBlur={(event) => {
-                                    const match = findProductMatchByCode(products, event.target.value);
-                                    if (!match) return;
-                                    setQuoteLines((current) =>
-                                      current.map((row, rowIndex) =>
-                                        rowIndex === index
-                                          ? {
-                                              ...row,
-                                              productCode: match.code,
-                                              productName: match.product.name,
-                                              suppliers: match.product.suppliers.length ? [...match.product.suppliers] : normalizeQuoteSuppliers(row.suppliers),
-                                              price: Number(match.product.price || 0),
-                                              imageUrl: row.imageUrl || match.product.imageUrl,
-                                            }
-                                          : row,
-                                      ),
-                                    );
-                                  }}
-                                  placeholder={t("form.quoteProductCodePlaceholder")}
-                                />
-                                <datalist id={`quote-product-code-options-${index}`}>
-                                  {quoteProductCodeOptions.map((option) => (
-                                    <option key={`${line.id ?? index}-${option}`} value={option} />
-                                  ))}
-                                </datalist>
-                              </div>
-                              <input type="number" min="0" step="0.01" value={line.price} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, price: Number(event.target.value) } : row)))} placeholder="0" />
-                              <input type="number" min="0" step="1" value={line.sample} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, sample: Number(event.target.value) } : row)))} placeholder="0" />
-                              <div className="quote-line-specs">
-                                <button
-                                  type="button"
-                                  className={`spec-lock-btn${line.specLocked ? " locked" : ""}`}
-                                  onClick={() => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, specLocked: !row.specLocked } : row)))}
-                                  title={line.specLocked ? t("form.specUnlock") : t("form.specLock")}
-                                >
-                                  {line.specLocked ? <IconLock size={14} strokeWidth={2} /> : <IconLockOpen size={14} strokeWidth={2} />}
-                                </button>
-                                {line.specLocked ? (
-                                  <div className="quote-spec-readonly">
-                                    {(["type", "size", "color", "finished"] as QuoteSpecField[]).map((field) => {
-                                      const value = line[quoteSpecValueKeys[field]];
-                                      return value ? (
-                                        <div key={field} className="spec-readonly-line">
-                                          <span className="spec-readonly-label">{quoteSpecFieldLabels[field]}:</span>
-                                          <span className="spec-readonly-value">{value}</span>
-                                        </div>
-                                      ) : null;
-                                    })}
-                                    {line.remarksValue ? (
-                                      <div className="spec-readonly-line remarks">
-                                        <span className="spec-readonly-label">REMARKS:</span>
-                                        <span className="spec-readonly-value">{line.remarksValue}</span>
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                ) : (
-                                  <>
-                                    <label>
-                                      <span>{quoteSpecFieldLabels.type}</span>
-                                      <input value={line.typeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "type", event.target.value)} placeholder="手动填写 TYPE" />
-                                    </label>
-                                    <label>
-                                      <span>{quoteSpecFieldLabels.size}</span>
-                                      <input value={line.sizeValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "size", event.target.value)} placeholder="手动填写 SIZE" />
-                                    </label>
-                                    <label>
-                                      <span>{quoteSpecFieldLabels.color}</span>
-                                      <input value={line.colorValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "color", event.target.value)} placeholder="手动填写 COLOR" />
-                                    </label>
-                                    <label>
-                                      <span>{quoteSpecFieldLabels.finished}</span>
-                                      <input value={line.finishedValue ?? ""} onChange={(event) => setQuoteLineSpecValue(index, "finished", event.target.value)} placeholder="手动填写 FINISHED" />
-                                    </label>
-                                    <label className="quote-line-remarks">
-                                      <span>REMARKS</span>
-                                      <textarea rows={5} value={line.remarksValue ?? ""} onChange={(event) => setQuoteLineRemarks(index, event.target.value)} placeholder="备注说明" />
-                                    </label>
-                                  </>
-                                )}
-                              </div>
-                              <textarea rows={5} value={line.pricingNotes} onChange={(event) => setQuoteLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, pricingNotes: event.target.value } : row)))} placeholder={"1M: ...\n2.5M: ...\n5M: ..."} />
-                              <div className="quote-line-cost-side">
-                                {hasCostItems ? (
-                                  <div className="cost-mini-list">
-                                    {(line.costItems ?? []).map((item, costIndex) => (
-                                      <div className="cost-mini-row" key={item.id ?? costIndex}>
-                                        <select
-                                          value={item.label}
-                                          onChange={(event) =>
-                                            setQuoteLines((current) =>
-                                              current.map((row, rowIndex) =>
-                                                rowIndex === index
-                                                  ? {
-                                                      ...row,
-                                                      costItems: (row.costItems ?? []).map((costItem, rowCostIndex) =>
-                                                        rowCostIndex === costIndex ? { ...costItem, label: event.target.value } : costItem,
-                                                      ),
-                                                    }
-                                                  : row,
-                                              ),
-                                            )
-                                          }
-                                        >
-                                          {quoteCostItemOptions.map((option) => (
-                                            <option key={option} value={option}>
-                                              {option}
-                                            </option>
-                                          ))}
-                                        </select>
-                                        <input
-                                          type="number"
-                                          min="0"
-                                          step="0.01"
-                                          value={item.amount}
-                                          onChange={(event) =>
-                                            setQuoteLines((current) =>
-                                              current.map((row, rowIndex) =>
-                                                rowIndex === index
-                                                  ? {
-                                                      ...row,
-                                                      costItems: (row.costItems ?? []).map((costItem, rowCostIndex) =>
-                                                        rowCostIndex === costIndex ? { ...costItem, amount: Number(event.target.value) } : costItem,
-                                                      ),
-                                                    }
-                                                  : row,
-                                              ),
-                                            )
-                                          }
-                                          placeholder="0.18"
-                                        />
-                                        <button
-                                          type="button"
-                                          className="action-link delete"
-                                          onClick={() =>
-                                            setQuoteLines((current) =>
-                                              current.map((row, rowIndex) =>
-                                                rowIndex === index
-                                                  ? { ...row, costItems: (row.costItems ?? []).filter((_, rowCostIndex) => rowCostIndex !== costIndex) }
-                                                  : row,
-                                              ),
-                                            )
-                                          }
-                                        >
-                                          <IconTrash size={14} strokeWidth={2} />
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  className="secondary-button tiny-button cost-add-btn"
-                                  onClick={() =>
-                                    setQuoteLines((current) =>
-                                      current.map((row, rowIndex) =>
-                                        rowIndex === index
-                                          ? {
-                                              ...row,
-                                              costItems: [...(row.costItems ?? []), { id: createLineItemId(), label: quoteCostItemOptions[0], amount: 0 }],
-                                            }
-                                          : row,
-                                      ),
-                                    )
-                                  }
-                                >
-                                  <IconPlus size={14} strokeWidth={2} />
-                                </button>
-                                <button type="button" className="action-link delete" onClick={() => setQuoteLines((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
-                                  <IconTrash size={16} strokeWidth={2} />
-                                  {t("action.delete")}
-                                </button>
-                              </div>
-                            </div>
-                            <div className="quote-line-suppliers">
-                              <div className="quote-line-suppliers-head">
-                                <span>{t("form.quoteSuppliers")}</span>
-                                <div className="quote-line-suppliers-actions">
-                                  <button type="button" className="secondary-button tiny-button" onClick={() => saveQuoteLineSuppliers(index)}>
-                                    {t("button.save")}
-                                  </button>
-                                  <button type="button" className="secondary-button tiny-button" onClick={() => addQuoteLineSupplier(index)}>
-                                    <IconPlus size={14} strokeWidth={2} />
-                                    {t("button.addQuoteSupplier")}
-                                  </button>
-                                </div>
-                              </div>
-                              <p className="quote-line-suppliers-help">{t("quote.supplierHelp")}</p>
-                              <div className="quote-line-supplier-list">
-                                {lineSuppliers.map((supplier, supplierIndex) => (
-                                  <div className="quote-line-supplier-row" key={`${line.id ?? index}-supplier-${supplierIndex}`} data-quote-line-supplier-index={supplierIndex}>
-                                    <input
-                                      list="quote-supplier-options"
-                                      value={supplier}
-                                      onChange={(event) => setQuoteLineSupplierValue(index, supplierIndex, event.target.value)}
-                                      placeholder={t("form.quoteSupplierPlaceholder")}
-                                    />
-                                    <button
-                                      type="button"
-                                      className="action-link delete"
-                                      onClick={() => removeQuoteLineSupplier(index, supplierIndex)}
-                                      disabled={lineSuppliers.length === 1 && !supplier.trim()}
-                                    >
-                                      <IconTrash size={14} strokeWidth={2} />
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      <datalist id="quote-supplier-options">
-                        {supplierNameOptions.map((supplierName) => (
-                          <option key={supplierName} value={supplierName} />
-                        ))}
-                      </datalist>
-                    </div>
-                  </section>
-
-                  <section className="quote-tier-panel" id="quote-tiers-panel">
-                    <div className="editable-block">
-                      <div className="editable-head">
-                        <button type="button" className="toggle-btn tier-toggle" onClick={() => { const el = document.getElementById("quote-tiers-body"); if (el) el.style.display = el.style.display === "none" ? "block" : "none"; }}>
-                          {t("form.quoteTierToggle")}
-                        </button>
-                        <strong>{t("form.quoteTier")}</strong>
-                        <button type="button" className="secondary-button tiny-button" onClick={() => setQuoteTiers((current) => [...current, { id: createLineItemId(), quantity: "", unitPrice: 0 }])}>
-                          <IconPlus size={16} strokeWidth={2} />
-                          {t("button.addQuoteTier")}
-                        </button>
-                      </div>
-                      <div className="editable-list" id="quote-tiers-body">
-                        {quoteTiers.map((item, index) => (
-                          <div className="editable-row tier-row" key={item.id ?? index}>
-                            <input value={item.quantity} onChange={(event) => setQuoteTiers((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, quantity: event.target.value } : row)))} placeholder="1M" />
-                            <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={(event) => setQuoteTiers((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, unitPrice: Number(event.target.value) } : row)))} placeholder="0.52" />
-                            <button type="button" className="action-link delete" onClick={() => setQuoteTiers((current) => current.filter((_, rowIndex) => rowIndex !== index))}>
-                              <IconTrash size={16} strokeWidth={2} />
-                              {t("action.delete")}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </section>
-
-                  <label className="full-span quote-notes-field">
-                    <span>{t("form.quoteNotes")}</span>
-                    <textarea rows={4} value={quoteDraft.notes} onChange={(event) => setQuoteDraft({ ...quoteDraft, notes: event.target.value })} />
-                  </label>
-
-                  <div className="form-actions quote-form-actions">
-                    <button className="secondary-button" type="button" onClick={closeModal}>
-                      {t("button.cancel")}
-                    </button>
-                    <button className="primary-button" type="submit">
-                      {editingQuoteId ? t("button.save") : t("button.create")}
-                    </button>
-                  </div>
-                </main>
-
-                <aside className="quote-workbench-rail">
-                  <section className="quote-preview-card quote-preview-rail">
-                    <div>
-                      <strong>{t("table.quoteId")}</strong>
-                      <p>{quoteDraft.quoteNo || "-"}</p>
-                    </div>
-                    <div>
-                      <strong>{t("form.quoteStatus")}</strong>
-                      <p>{t(`status.${quoteDraft.status}`)}</p>
-                    </div>
-                    <div>
-                      <strong>{t("button.previewCalc")}</strong>
-                      <p>{quotePreviewTier ? `${quotePreviewTier.quantity} · ${formatMoney(quotePreviewUnitPrice, locale)}` : "-"}</p>
-                    </div>
-                    <div>
-                      <strong>{t("table.amount")}</strong>
-                      <p>{formatMoney(quotePreviewTotal, locale)}</p>
-                    </div>
-                  </section>
-
-                  <section className="quote-rail-card">
-                    <div className="editable-head">
-                      <div>
-                        <strong>{t("quote.summaryTitle")}</strong>
-                        <p>{t("quote.summaryHelp")}</p>
-                      </div>
-                    </div>
-                    <div className="quote-summary-list">
-                      <div>
-                        <span>{t("quote.summaryLines")}</span>
-                        <strong>{quoteFilledLineCount}</strong>
-                      </div>
-                      <div>
-                        <span>{t("quote.summarySuppliers")}</span>
-                        <strong>{quoteSupplierCount}</strong>
-                      </div>
-                      <div>
-                        <span>{t("quote.summaryTiers")}</span>
-                        <strong>{quoteTiers.length}</strong>
-                      </div>
-                    </div>
-                  </section>
-                </aside>
-              </div>
-            </form>
-          </EditorModal>
+          <QuoteForm
+            open={true}
+            isEditing={!!editingQuoteId}
+            quoteDraft={quoteDraft}
+            quoteLines={quoteLines}
+            quoteTiers={quoteTiers}
+            products={products}
+            brands={brands}
+            customers={customers}
+            suppliers={suppliers}
+            onCancel={closeModal}
+            onSubmit={submitQuoteDraft}
+            onDraftChange={setQuoteDraft}
+            onLinesChange={setQuoteLines}
+            onTiersChange={setQuoteTiers}
+            onImageUpload={(file) => {
+              const reader = new FileReader();
+              reader.onload = (e) => setQuoteDraft((prev) => ({ ...prev, imageUrl: e.target?.result as string }));
+              reader.readAsDataURL(file);
+            }}
+            onLineImageUpload={(index, file) => {
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                setQuoteLines((prev) => prev.map((line, i) => i === index ? { ...line, imageUrl: e.target?.result as string } : line));
+              };
+              reader.readAsDataURL(file);
+            }}
+            onClearImage={() => setQuoteDraft((prev) => ({ ...prev, imageUrl: "" }))}
+            onDateChange={(dateStr) => {
+              // 按用户选择的日期重新生成符合规则的报价单号
+              const newId = createQuoteId(quotes, dateStr);
+              setQuoteDraft((prev) => ({ ...prev, quoteNo: newId }));
+            }}
+          />
         ) : null}
 
         {activeModal === "development" ? (
@@ -6153,7 +5960,7 @@ function QuotesPage({
           </div>
         </div>
         <Table
-          columns={[t("table.quoteId"), "PI 号", t("table.quoteBrand"), t("table.customer"), t("table.quoteProduct"), t("table.quoteTier"), t("table.status"), t("table.actions")]}
+          columns={[t("table.quoteId"), t("table.quoteBrand"), t("table.customer"), t("table.quoteProduct"), t("table.quoteTier"), t("table.status"), t("table.actions")]}
           rows={quotes.map((item) => {
             const tier = calculateQuoteTier(item.tiers, quantityPreview);
             const unitPrice = getQuoteUnitPrice(item, quantityPreview);
@@ -6161,7 +5968,6 @@ function QuotesPage({
             const firstLine = item.lines[0];
             return [
               <span key={`${item.id}-quoteNo`} style={{ fontFamily: "monospace", color: "#1677ff", fontWeight: 600 }}>{item.quoteNo}</span>,
-              item.piNo ? <span key={`${item.id}-piNo`} style={{ fontFamily: "monospace" }}>{item.piNo}</span> : <span key={`${item.id}-piNo`} style={{ color: "#bbb" }}>—</span>,
               item.brand,
               <div key={`${item.id}-customer`}>
                 <strong>{item.customer}</strong>
@@ -6463,6 +6269,7 @@ function ProformaInvoicePage({
 }) {
   const location = useLocation();
   const autoPrint = location.pathname === "/pis/print";
+  const autoGenPO = new URLSearchParams(location.search).get("genpo") === "1";
 
   useEffect(() => {
     if (!selectedPi || !autoPrint) return;
@@ -6470,10 +6277,28 @@ function ProformaInvoicePage({
     return () => window.clearTimeout(timer);
   }, [autoPrint, selectedPi?.id]);
 
-  const linkedPO = useMemo(
-    () => (selectedPi ? [...pos].find((po) => po.sourcePiId === selectedPi.id || po.poNo === selectedPi.piNo) ?? null : null),
+  useEffect(() => {
+    if (!autoGenPO || !selectedPi) return;
+    setPoGenVendors([]);
+    setShowPOCVendorModal(true);
+    // 清除 URL 参数
+    navigate(`/pis/preview?pi=${encodeURIComponent(selectedPi.id)}`, { replace: true });
+  }, [autoGenPO, selectedPi?.id]);
+
+  const linkedPOs = useMemo(
+    () => (selectedPi ? [...pos].filter((po) => po.sourcePiId === selectedPi.id || po.poNo === selectedPi.piNo) : []),
     [pos, selectedPi],
   );
+
+  const [showPOCVendorModal, setShowPOCVendorModal] = useState(false);
+  const [poGenVendors, setPoGenVendors] = useState<string[]>([]);
+
+  const handleGeneratePOs = () => {
+    if (!selectedPi || poGenVendors.length === 0) return;
+    generatePOsFromPI(selectedPi, poGenVendors);
+    setShowPOCVendorModal(false);
+    setPoGenVendors([]);
+  };
 
   const invoiceLines =
     selectedPi?.lines?.length && selectedPi.lines.some((line) => line.productCode || line.productName)
@@ -6524,6 +6349,10 @@ function ProformaInvoicePage({
               ))}
             </select>
           </label>
+          <button className="primary-button" type="button" onClick={() => { setPoGenVendors([]); setShowPOCVendorModal(true); }} disabled={!selectedPi}>
+            <IconReceipt2 size={18} strokeWidth={2} />
+            生成采购单
+          </button>
           <button className="primary-button" type="button" onClick={onExportPdf} disabled={!selectedPi}>
             <IconPrinter size={18} strokeWidth={2} />
             {t("button.generatePdf")}
@@ -7029,6 +6858,43 @@ function PoDetailPage({
             注：以上印刷施工单请核对，仅供参考，如有问题，请致电联系！
           </div>
         </article>
+
+        {showPOCVendorModal && (
+          <div className="modal-overlay" onClick={() => setShowPOCVendorModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>选择供应商生成采购单</h3>
+                <button className="modal-close" onClick={() => setShowPOCVendorModal(false)}>×</button>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: 12, color: "#666" }}>选择一个或多个供应商，每个供应商将生成一张采购单：</p>
+                {suppliers.filter((s) => s.status === "active").map((vendor) => (
+                  <label key={vendor.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+                    <input
+                      type="checkbox"
+                      checked={poGenVendors.includes(vendor.name)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setPoGenVendors((prev) => [...prev, vendor.name]);
+                        } else {
+                          setPoGenVendors((prev) => prev.filter((v) => v !== vendor.name));
+                        }
+                      }}
+                    />
+                    <span>{vendor.name}</span>
+                    {vendor.contact ? <span style={{ color: "#999", fontSize: 12 }}>{vendor.contact}</span> : null}
+                  </label>
+                ))}
+              </div>
+              <div className="modal-footer">
+                <button className="secondary-button" onClick={() => { setShowPOCVendorModal(false); setPoGenVendors([]); }}>取消</button>
+                <button className="primary-button" disabled={poGenVendors.length === 0} onClick={handleGeneratePOs}>
+                  生成 {poGenVendors.length} 张采购单
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
