@@ -131,6 +131,7 @@ export interface DevelopmentLine {
   imageUrl: string;
   productCode: string;
   productName: string;
+  supplier?: string;
   description: string;
   typeValue?: string;
   sizeValue?: string;

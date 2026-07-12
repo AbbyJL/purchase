@@ -5,4 +5,4 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "woodgrain_ops"
-database_id = "593bdba8-24a3-443d-b212-a2b8e54faef2"
+database_id = "a7a913ce-249e-45d3-8511-876e15dbedef"

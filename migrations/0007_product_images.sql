@@ -1,1 +1,3 @@
-ALTER TABLE products ADD COLUMN image_url TEXT NOT NULL DEFAULT '';
+-- image_url column already exists in products table (added in 0001_init.sql)
+-- This migration is a no-op to maintain migration history
+SELECT 1;

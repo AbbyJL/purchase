@@ -937,6 +937,7 @@ function createDevelopmentLine(overrides: Partial<DevelopmentLineDraft> = {}): D
       imageUrl: "",
       productCode: "",
       productName: "",
+      supplier: "",
       description: buildQuoteLineDescription(spec),
       typeValue: spec.typeValue,
       sizeValue: spec.sizeValue,
@@ -2043,7 +2044,7 @@ function App() {
     setEditingQuoteId(null);
     const template = createQuoteSheetTemplate();
     const today = new Date().toISOString().slice(0, 10);
-    const piNo = createPIId(pis, today);
+    const piNo = createPINo(pis, today);
     setQuoteDraft({ ...template.draft, date: today, quoteNo: createQuoteId(quotes, today), piNo });
     setQuoteLines(template.lines.map((line) => normalizeQuoteLineDraft(line)));
     setQuoteTiers(template.tiers);
@@ -2783,6 +2784,7 @@ function App() {
         imageUrl: item.imageUrl.trim(),
         productCode: item.productCode.trim(),
         productName: item.productName.trim(),
+        supplier: item.supplier?.trim() ?? "",
         description: buildQuoteLineDescription({
           typeValue: String(item.typeValue ?? "").trim(),
           sizeValue: String(item.sizeValue ?? "").trim(),
@@ -4733,6 +4735,7 @@ function generatePIFromQuote(quote: Quote) {
                     <span>{t("form.developmentLineImage")}</span>
                     <span>{t("form.developmentLineProductCode")}</span>
                     <span>{t("form.developmentLineProductName")}</span>
+                    <span>{t("form.developmentLineSupplier")}</span>
                     <span>{t("form.developmentLineDescription")}</span>
                     <span>{t("form.developmentLineLocked")}</span>
                   </div>
@@ -4757,6 +4760,14 @@ function generatePIFromQuote(quote: Quote) {
                           </select>
                           <input value={line.productCode} onChange={(event) => setDevelopmentLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productCode: event.target.value } : row)))} placeholder={t("form.lineProductCode")} />
                           <input value={line.productName} onChange={(event) => setDevelopmentLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, productName: event.target.value } : row)))} placeholder={t("form.lineProductName")} />
+                          <select value={line.supplier ?? ""} onChange={(event) => setDevelopmentLines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, supplier: event.target.value } : row)))}>
+                            <option value="">{t("form.developmentLineSupplier")}</option>
+                            {suppliers.map((supplier) => (
+                              <option key={supplier.id} value={supplier.name}>
+                                {supplier.name}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div className="quote-line-specs">
                           <div className="quote-spec-readonly">
