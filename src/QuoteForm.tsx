@@ -122,7 +122,6 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
     };
     onLinesChange(newLines);
   };
-
   /** 更新某行的供应商定价列表 */
   const handleSupplierPricingChange = (lineIndex: number, pricingList: SupplierPricing[]) => {
     const newLines = [...quoteLines];

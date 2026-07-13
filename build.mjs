@@ -19,4 +19,3 @@ html = html.replace(/src="\/assets\/[^"]+"/g, 'src="/assets/index-latest.js"');
 html = html.replace(/href="\/assets\/[^"]+"/g, 'href="/assets/index-latest.css"');
 writeFileSync('dist/index.html', html);
 console.log('Build OK');
-
