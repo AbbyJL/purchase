@@ -49,12 +49,18 @@ function mapProduct(item: (typeof seedProducts)[number]): Product {
 }
 
 function mapOrder(item: (typeof seedOrders)[number]): Order {
+  const quantity = Number((item as { quantity?: number }).quantity ?? 1);
+  const unitPrice = Number((item as { unitPrice?: number }).unitPrice ?? item.total / Math.max(1, quantity));
   return {
     id: item.id,
+    customerOrderNo: (item as { customerOrderNo?: string }).customerOrderNo ?? item.id,
     customer: item.customer,
     product: item.product,
+    quantity,
+    unitPrice,
+    currency: (item as { currency?: Order["currency"] }).currency ?? "CNY",
     status: item.status as Order["status"],
-    total: item.total,
+    total: Number((quantity * unitPrice).toFixed(2)),
     channel: item.channel,
   };
 }

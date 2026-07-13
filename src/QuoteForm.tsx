@@ -1,23 +1,16 @@
 import React from "react";
-import { Modal, Form, Input, Select, DatePicker, Upload, Button, Checkbox, InputNumber, Collapse } from "antd";
+import { Modal, Form, Input, Select, Upload, Button, Checkbox, InputNumber, Collapse } from "antd";
 import { PlusOutlined, DeleteOutlined, UploadOutlined, LockOutlined } from "@ant-design/icons";
-import type { Quote, QuoteLine, QuoteTier, QuoteCostItem, Product, Brand, Customer, Supplier } from "./types";
+import type { Quote, QuoteLine, QuoteTier, QuoteCostItem, Product, Brand, Customer, Supplier, SupplierPricing } from "./types";
 
 const { TextArea } = Input;
 
-/** 供应商定价条目（UI 层用，序列化时存入 QuoteLine.supplierPricing） */
-export interface SupplierPricing {
-  supplierName: string;
-  unitPrice: number;
-  sampleQty: number;
-  priceNotes: string;
-  costItems: QuoteCostItem[];
-}
+type QuoteHeaderDraft = Omit<Quote, "id" | "costItems" | "tiers" | "lines"> & { id?: string };
 
 interface QuoteFormProps {
   open: boolean;
   isEditing: boolean;
-  quoteDraft: Quote;
+  quoteDraft: QuoteHeaderDraft;
   quoteLines: QuoteLine[];
   quoteTiers: QuoteTier[];
   products: Product[];
@@ -26,7 +19,7 @@ interface QuoteFormProps {
   suppliers: Supplier[];
   onCancel: () => void;
   onSubmit: () => void;
-  onDraftChange: (draft: Quote) => void;
+  onDraftChange: (draft: QuoteHeaderDraft) => void;
   onLinesChange: (lines: QuoteLine[]) => void;
   onTiersChange: (tiers: QuoteTier[]) => void;
   onImageUpload: (file: File) => void;
@@ -87,7 +80,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
 
   const handleAddLine = () => {
     const newLine: QuoteLine = {
-      id: Date.now(),
+      id: String(Date.now()),
       productId: "",
       productName: "",
       productCode: "",
@@ -101,6 +94,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
       spec: { type: "", size: "", color: "", finished: "", remarks: "" },
       pricingNotes: "",
       description: "",
+      cost: "",
     };
     onLinesChange([...quoteLines, newLine]);
   };
@@ -112,6 +106,20 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   const handleLineChange = (index: number, field: string, value: any) => {
     const newLines = [...quoteLines];
     (newLines[index] as any)[field] = value;
+    onLinesChange(newLines);
+  };
+
+  const handleProductChange = (index: number, productId: string) => {
+    const product = products.find((item) => item.id === productId);
+    const newLines = [...quoteLines];
+    newLines[index] = {
+      ...newLines[index],
+      productId,
+      productCode: product?.quoteProductCodes?.[0] || product?.codePrefix || product?.id || "",
+      productName: product?.name || "",
+      imageUrl: newLines[index].imageUrl || product?.imageUrl || "",
+      suppliers: product?.suppliers?.length ? [...product.suppliers] : newLines[index].suppliers,
+    };
     onLinesChange(newLines);
   };
 
@@ -135,7 +143,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
 
   const handleAddTier = () => {
     const newTier: QuoteTier = {
-      id: Date.now(),
+      id: String(Date.now()),
       quantity: "",
       unitPrice: 0,
       note: "",
@@ -255,21 +263,21 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
               />
             </Form.Item>
             <Form.Item label="日期">
-              <DatePicker
-                value={undefined}
-                onChange={(date: any) => {
-                  const dateStr = date ? date.format("YYYY-MM-DD") : "";
+              <Input
+                type="date"
+                value={quoteDraft.date}
+                onChange={(event) => {
+                  const dateStr = event.target.value;
                   onDraftChange({ ...quoteDraft, date: dateStr });
                   if (dateStr) onDateChange?.(dateStr);
                 }}
-                style={{ width: "100%" }}
               />
             </Form.Item>
             <Form.Item label="登记人">
               <Input value={quoteDraft.register} onChange={(e) => onDraftChange({ ...quoteDraft, register: e.target.value })} />
             </Form.Item>
             <Form.Item label="修改日期">
-              <DatePicker style={{ width: "100%" }} />
+              <Input type="date" value={quoteDraft.modificationDate} onChange={(event) => onDraftChange({ ...quoteDraft, modificationDate: event.target.value })} />
             </Form.Item>
             <Form.Item label="业务员">
               <Input value={quoteDraft.salesperson} onChange={(e) => onDraftChange({ ...quoteDraft, salesperson: e.target.value })} />
@@ -309,7 +317,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
               新增明细
             </Button>
           </legend>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div data-testid="quote-lines" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {quoteLines.map((line, index) => {
               const pricingList = readSupplierPricing(line);
               return (
@@ -330,10 +338,10 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
                       </label>
                     </div>
                     {/* 产品信息 */}
-                    <div style={{ flex: 1, display: "grid", gap: 6, gridTemplateColumns: "1fr 1fr" }}>
+                    <div data-testid="quote-product-grid" style={{ flex: 1, display: "grid", gap: 6, gridTemplateColumns: "1fr 1fr" }}>
                       <Select
                         value={line.productId}
-                        onChange={(val) => handleLineChange(index, "productId", val)}
+                        onChange={(val) => handleProductChange(index, val)}
                         placeholder="从样品管理选择或手动输入"
                         options={products.map((p) => ({ label: p.name, value: p.id }))}
                         style={{ gridColumn: "1 / -1" }}
@@ -402,7 +410,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
                       </Button>
                     </div>
                     {pricingList.map((pricing, si) => (
-                      <div key={si} style={{ marginTop: 8, background: "#fafafa", borderRadius: 8, padding: 12, border: "1px solid #e8e8e8" }}>
+                      <div key={si} data-testid="quote-supplier-pricing-row" style={{ marginTop: 8, background: "#fafafa", borderRadius: 8, padding: 12, border: "1px solid #e8e8e8" }}>
                         {/* 供应商选择 + 删除 */}
                         <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 10 }}>
                           <Select
@@ -553,11 +561,11 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
                         newTiers[ti] = { ...newTiers[ti], unitPrice: val ?? 0 };
                         onTiersChange(newTiers);
                       }} placeholder="单价" style={{ width: 120 }} />
-                      <Input value={tier.note} onChange={(e) => {
+                      <Input value={tier.note ?? ""} onChange={(e) => {
                         const newTiers = [...quoteTiers];
                         newTiers[ti] = { ...newTiers[ti], note: e.target.value };
                         onTiersChange(newTiers);
-                      }} placeholder="备注" flex={1} />
+                      }} placeholder="备注" style={{ flex: 1 }} />
                       <Button type="default" danger size="small" onClick={() => onTiersChange(quoteTiers.filter((_, i) => i !== ti))}>
                         删除
                       </Button>

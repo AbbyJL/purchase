@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
+    "build": "npm run typecheck && node build.mjs",
     "preview": "vite preview",
     "test": "playwright test",
     "test:ui": "playwright test --ui",

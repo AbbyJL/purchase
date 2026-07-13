@@ -49,12 +49,18 @@ function mapProduct(row: RecordLike) {
 }
 
 function mapOrder(row: RecordLike) {
+  const quantity = Number(row.quantity ?? 1);
+  const unitPrice = Number(row.unit_price ?? row.unitPrice ?? Number(row.total ?? 0) / Math.max(1, quantity));
   return {
     id: String(row.id),
+    customerOrderNo: String(row.customer_order_no ?? row.customerOrderNo ?? row.id),
     customer: String(row.customer),
     product: String(row.product),
+    quantity,
+    unitPrice,
+    currency: String(row.currency ?? "CNY"),
     status: String(row.status),
-    total: Number(row.total),
+    total: Number((quantity * unitPrice).toFixed(2)),
     channel: String(row.channel),
   };
 }
@@ -285,7 +291,7 @@ export async function listProducts(env: Env) {
 export async function listOrders(env: Env) {
   if (!env.DB) return seedOrders;
   const result = await env.DB.prepare(
-    "SELECT id, customer, product, status, total, channel FROM orders ORDER BY id ASC",
+    "SELECT id, customer_order_no, customer, product, quantity, unit_price, currency, status, total, channel FROM orders ORDER BY id ASC",
   ).all();
   return (result.results ?? []).map(mapOrder);
 }
@@ -548,92 +554,34 @@ export async function deleteProduct(env: Env, id: string) {
   return { ok: true };
 }
 
-async function upsertProductFromPILine(env: Env, line: RecordLike) {
-  const productCode = String(line.productCode ?? "").trim();
-  const productName = String(line.productName ?? "").trim();
-  if (!productCode && !productName) return;
-  const lineSupplier = String(line.supplier ?? "").trim();
-  const codePrefix = productCode.includes("-") ? productCode.split("-")[0] : productCode.replace(/\d.*$/, "");
-
-  const id = productCode || `SPU${Date.now().toString().slice(-6)}`;
-  const existing = await env.DB!.prepare("SELECT * FROM products WHERE id = ?1").bind(id).first<RecordLike>();
-  const existingSuppliers = existing ? normalizeSupplierList(existing) : [];
-  const existingQuoteCodes = existing ? toStringArray(existing.quote_product_codes_json ?? existing.quoteProductCodes_json ?? existing.quoteProductCodes) : [];
-  const nextQuoteCodes = Array.from(new Set([...existingQuoteCodes, ...(productCode ? [productCode] : [])]));
-  const suppliers = Array.from(new Set([...existingSuppliers, ...(lineSupplier ? [lineSupplier] : [])]));
-  const payload = {
-    id,
-    name: productName || productCode,
-    supplier: suppliers[0] ?? "",
-    suppliers,
-    categoryKey: String(line.categoryKey ?? "accessory"),
-    price: Number(line.unitPrice ?? line.price ?? 0),
-    stock: Number(line.stock ?? 0),
-    status: String(line.status ?? "In stock"),
-    imageUrl: String(line.imageUrl ?? ""),
-    codePrefix: String(existing?.code_prefix ?? existing?.codePrefix ?? codePrefix ?? ""),
-    quoteProductCodes: nextQuoteCodes,
-  };
-
-  if (existing) {
-    await env.DB!.prepare(
-      "UPDATE products SET name = ?2, supplier = ?3, suppliers_json = ?4, category_key = ?5, price = ?6, stock = ?7, status = ?8, image_url = ?9, code_prefix = ?10, quote_product_codes_json = ?11 WHERE id = ?1",
-    )
-      .bind(
-        id,
-        payload.name,
-        payload.supplier,
-        JSON.stringify(payload.suppliers),
-        payload.categoryKey,
-        payload.price,
-        payload.stock,
-        payload.status,
-        payload.imageUrl,
-        payload.codePrefix,
-        JSON.stringify(payload.quoteProductCodes),
-      )
-      .run();
-    return;
-  }
-
-  await env.DB!.prepare(
-    "INSERT INTO products (id, name, supplier, suppliers_json, category_key, price, stock, status, image_url, code_prefix, quote_product_codes_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-  )
-    .bind(
-      id,
-      payload.name,
-      payload.supplier,
-      JSON.stringify(payload.suppliers),
-      payload.categoryKey,
-      payload.price,
-      payload.stock,
-      payload.status,
-      payload.imageUrl,
-      payload.codePrefix,
-      JSON.stringify(payload.quoteProductCodes),
-    )
-    .run();
-}
-
 export async function createOrder(env: Env, input: RecordLike) {
   const id = String(input.id ?? `OR${Date.now().toString().slice(-6)}`);
   const payload = {
     id,
+    customerOrderNo: String(input.customerOrderNo ?? input.customer_order_no ?? "").trim(),
     customer: String(input.customer ?? ""),
     product: String(input.product ?? ""),
+    quantity: Number(input.quantity ?? 0),
+    unitPrice: Number(input.unitPrice ?? input.unit_price ?? 0),
+    currency: String(input.currency ?? "USD"),
     status: String(input.status ?? "Pending"),
-    total: Number(input.total ?? 0),
+    total: 0,
     channel: String(input.channel ?? "线上"),
   };
+  payload.total = Number((payload.quantity * payload.unitPrice).toFixed(2));
+
+  if (!payload.customerOrderNo || !payload.customer || !payload.product || payload.quantity <= 0 || payload.unitPrice < 0 || !["CNY", "USD"].includes(payload.currency)) {
+    return { ok: false, message: "Invalid order payload", order: payload };
+  }
 
   if (!env.DB) {
     return { ok: false, message: "D1 not configured", order: payload };
   }
 
   await env.DB.prepare(
-    "INSERT INTO orders (id, customer, product, status, total, channel) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    "INSERT INTO orders (id, customer_order_no, customer, product, quantity, unit_price, currency, status, total, channel) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
   )
-    .bind(payload.id, payload.customer, payload.product, payload.status, payload.total, payload.channel)
+    .bind(payload.id, payload.customerOrderNo, payload.customer, payload.product, payload.quantity, payload.unitPrice, payload.currency, payload.status, payload.total, payload.channel)
     .run();
 
   return { ok: true, order: payload };
@@ -644,21 +592,30 @@ export async function updateOrder(env: Env, input: RecordLike) {
   if (!id) return { ok: false, message: "Missing id" };
 
   const payload = {
+    customerOrderNo: String(input.customerOrderNo ?? input.customer_order_no ?? "").trim(),
     customer: String(input.customer ?? ""),
     product: String(input.product ?? ""),
+    quantity: Number(input.quantity ?? 0),
+    unitPrice: Number(input.unitPrice ?? input.unit_price ?? 0),
+    currency: String(input.currency ?? "USD"),
     status: String(input.status ?? "Pending"),
-    total: Number(input.total ?? 0),
+    total: 0,
     channel: String(input.channel ?? "线上"),
   };
+  payload.total = Number((payload.quantity * payload.unitPrice).toFixed(2));
+
+  if (!payload.customerOrderNo || !payload.customer || !payload.product || payload.quantity <= 0 || payload.unitPrice < 0 || !["CNY", "USD"].includes(payload.currency)) {
+    return { ok: false, message: "Invalid order payload" };
+  }
 
   if (!env.DB) {
     return { ok: false, message: "D1 not configured" };
   }
 
   await env.DB.prepare(
-    "UPDATE orders SET customer = ?2, product = ?3, status = ?4, total = ?5, channel = ?6 WHERE id = ?1",
+    "UPDATE orders SET customer_order_no = ?2, customer = ?3, product = ?4, quantity = ?5, unit_price = ?6, currency = ?7, status = ?8, total = ?9, channel = ?10 WHERE id = ?1",
   )
-    .bind(id, payload.customer, payload.product, payload.status, payload.total, payload.channel)
+    .bind(id, payload.customerOrderNo, payload.customer, payload.product, payload.quantity, payload.unitPrice, payload.currency, payload.status, payload.total, payload.channel)
     .run();
 
   return { ok: true };
@@ -1129,7 +1086,7 @@ export async function createPI(env: Env, input: RecordLike) {
   const payload = {
     id,
     piNo: String(input.piNo ?? id),
-    plNo: String(input.plNo ?? input.pl_no ?? String(input.piNo ?? id).replace(/^PI/i, "PL")),
+    plNo: String(input.plNo ?? input.pl_no ?? "").trim(),
     customer: String(input.customer ?? ""),
     brand: String(input.brand ?? ""),
     vendor: String(input.vendor ?? ""),
@@ -1162,6 +1119,42 @@ export async function createPI(env: Env, input: RecordLike) {
     lines: Array.isArray(input.lines) ? input.lines : [],
     notes: String(input.notes ?? ""),
   };
+  const piLines = payload.lines as RecordLike[];
+  const invalidLine = piLines.find((line) => {
+    const supplier = String(line.supplier ?? "").trim();
+    const quantity = Number(line.quantity ?? 0);
+    const unitPrice = Number(line.unitPrice ?? 0);
+    const orderQty = Number(line.orderQty ?? quantity);
+    const deductedQty = Number(line.deductedQty ?? 0);
+    const outstandingQty = Number(line.outstandingQty ?? orderQty - deductedQty);
+    const inStockQty = Number(line.inStockQty ?? 0);
+    const stockOutQty = Number(line.stockOutQty ?? 0);
+    return !supplier || quantity <= 0 || unitPrice < 0 || orderQty <= 0 || deductedQty < 0 || deductedQty > orderQty
+      || outstandingQty !== orderQty - deductedQty || inStockQty < 0 || stockOutQty < 0
+      || stockOutQty > outstandingQty || stockOutQty > inStockQty;
+  });
+  const lineTotals = piLines.reduce((totals, line) => ({
+    orderQty: totals.orderQty + Number(line.orderQty ?? line.quantity ?? 0),
+    deductedQty: totals.deductedQty + Number(line.deductedQty ?? 0),
+    outstandingQty: totals.outstandingQty + Number(line.outstandingQty ?? Number(line.orderQty ?? line.quantity ?? 0) - Number(line.deductedQty ?? 0)),
+    inStockQty: totals.inStockQty + Number(line.inStockQty ?? 0),
+    stockOutQty: totals.stockOutQty + Number(line.stockOutQty ?? 0),
+  }), { orderQty: 0, deductedQty: 0, outstandingQty: 0, inStockQty: 0, stockOutQty: 0 });
+  if (!payload.piNo || !payload.customer || !payload.brand || !piLines.length || invalidLine) {
+    return { ok: false, message: "Invalid PI header or lines", pi: payload };
+  }
+  if (lineTotals.orderQty !== payload.orderQty || lineTotals.deductedQty !== payload.deductedQty || lineTotals.outstandingQty !== payload.outstandingQty || lineTotals.inStockQty !== payload.inStockQty || lineTotals.stockOutQty !== payload.stockOutQty) {
+    return { ok: false, message: "PI header quantities must equal line totals", pi: payload };
+  }
+  if (payload.orderQty <= 0 || payload.deductedQty < 0 || payload.deductedQty > payload.orderQty || payload.outstandingQty !== payload.orderQty - payload.deductedQty) {
+    return { ok: false, message: "Invalid PI order quantities", pi: payload };
+  }
+  if (payload.inStockQty < 0 || payload.stockOutQty < 0 || payload.stockOutQty > payload.inStockQty || payload.stockOutQty > payload.outstandingQty) {
+    return { ok: false, message: "Invalid PI stock-out quantities", pi: payload };
+  }
+  if ((payload.stockOutQty > 0 && (!payload.plNo || payload.status === "Draft")) || (payload.stockOutQty === 0 && payload.plNo)) {
+    return { ok: false, message: "PL must be created only by confirmed stock-out", pi: payload };
+  }
   if (!env.DB) return { ok: false, message: "D1 not configured", pi: payload };
   await env.DB.prepare(
     "INSERT INTO pis (id, pi_no, pl_no, customer, brand, vendor, our_ref_no, delivery_date, deliver_to, status, generated_at, generated_by, purchase_generated_at, finance_approved_at, packing_info_generated_at, commercial_invoice_generated_at, payment_confirmed_at, pdf_url, order_qty, deducted_qty, outstanding_qty, in_stock_qty, stock_out_qty, item_code, description, product_type, size, colors, finished, remarks, image_url, size_details_json, lines_json, notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)",
@@ -1203,9 +1196,6 @@ export async function createPI(env: Env, input: RecordLike) {
       payload.notes,
     )
     .run();
-  for (const line of payload.lines) {
-    await upsertProductFromPILine(env, line as RecordLike);
-  }
   return { ok: true, pi: payload };
 }
 
@@ -1214,7 +1204,7 @@ export async function updatePI(env: Env, input: RecordLike) {
   if (!id) return { ok: false, message: "Missing id" };
   const payload = {
     piNo: String(input.piNo ?? ""),
-    plNo: String(input.plNo ?? input.pl_no ?? String(input.piNo ?? "").replace(/^PI/i, "PL")),
+    plNo: String(input.plNo ?? input.pl_no ?? "").trim(),
     customer: String(input.customer ?? ""),
     brand: String(input.brand ?? ""),
     vendor: String(input.vendor ?? ""),
@@ -1247,6 +1237,42 @@ export async function updatePI(env: Env, input: RecordLike) {
     lines: Array.isArray(input.lines) ? input.lines : [],
     notes: String(input.notes ?? ""),
   };
+  const piLines = payload.lines as RecordLike[];
+  const invalidLine = piLines.find((line) => {
+    const supplier = String(line.supplier ?? "").trim();
+    const quantity = Number(line.quantity ?? 0);
+    const unitPrice = Number(line.unitPrice ?? 0);
+    const orderQty = Number(line.orderQty ?? quantity);
+    const deductedQty = Number(line.deductedQty ?? 0);
+    const outstandingQty = Number(line.outstandingQty ?? orderQty - deductedQty);
+    const inStockQty = Number(line.inStockQty ?? 0);
+    const stockOutQty = Number(line.stockOutQty ?? 0);
+    return !supplier || quantity <= 0 || unitPrice < 0 || orderQty <= 0 || deductedQty < 0 || deductedQty > orderQty
+      || outstandingQty !== orderQty - deductedQty || inStockQty < 0 || stockOutQty < 0
+      || stockOutQty > outstandingQty || stockOutQty > inStockQty;
+  });
+  const lineTotals = piLines.reduce((totals, line) => ({
+    orderQty: totals.orderQty + Number(line.orderQty ?? line.quantity ?? 0),
+    deductedQty: totals.deductedQty + Number(line.deductedQty ?? 0),
+    outstandingQty: totals.outstandingQty + Number(line.outstandingQty ?? Number(line.orderQty ?? line.quantity ?? 0) - Number(line.deductedQty ?? 0)),
+    inStockQty: totals.inStockQty + Number(line.inStockQty ?? 0),
+    stockOutQty: totals.stockOutQty + Number(line.stockOutQty ?? 0),
+  }), { orderQty: 0, deductedQty: 0, outstandingQty: 0, inStockQty: 0, stockOutQty: 0 });
+  if (!payload.piNo || !payload.customer || !payload.brand || !piLines.length || invalidLine) {
+    return { ok: false, message: "Invalid PI header or lines" };
+  }
+  if (lineTotals.orderQty !== payload.orderQty || lineTotals.deductedQty !== payload.deductedQty || lineTotals.outstandingQty !== payload.outstandingQty || lineTotals.inStockQty !== payload.inStockQty || lineTotals.stockOutQty !== payload.stockOutQty) {
+    return { ok: false, message: "PI header quantities must equal line totals" };
+  }
+  if (payload.orderQty <= 0 || payload.deductedQty < 0 || payload.deductedQty > payload.orderQty || payload.outstandingQty !== payload.orderQty - payload.deductedQty) {
+    return { ok: false, message: "Invalid PI order quantities" };
+  }
+  if (payload.inStockQty < 0 || payload.stockOutQty < 0 || payload.stockOutQty > payload.inStockQty || payload.stockOutQty > payload.outstandingQty) {
+    return { ok: false, message: "Invalid PI stock-out quantities" };
+  }
+  if ((payload.stockOutQty > 0 && (!payload.plNo || payload.status === "Draft")) || (payload.stockOutQty === 0 && payload.plNo)) {
+    return { ok: false, message: "PL must be created only by confirmed stock-out" };
+  }
   if (!env.DB) return { ok: false, message: "D1 not configured" };
   await env.DB.prepare(
     "UPDATE pis SET pi_no = ?2, pl_no = ?3, customer = ?4, brand = ?5, vendor = ?6, our_ref_no = ?7, delivery_date = ?8, deliver_to = ?9, status = ?10, generated_at = ?11, generated_by = ?12, purchase_generated_at = ?13, finance_approved_at = ?14, packing_info_generated_at = ?15, commercial_invoice_generated_at = ?16, payment_confirmed_at = ?17, pdf_url = ?18, order_qty = ?19, deducted_qty = ?20, outstanding_qty = ?21, in_stock_qty = ?22, stock_out_qty = ?23, item_code = ?24, description = ?25, product_type = ?26, size = ?27, colors = ?28, finished = ?29, remarks = ?30, image_url = ?31, size_details_json = ?32, lines_json = ?33, notes = ?34 WHERE id = ?1",
@@ -1288,9 +1314,6 @@ export async function updatePI(env: Env, input: RecordLike) {
       payload.notes,
     )
     .run();
-  for (const line of payload.lines) {
-    await upsertProductFromPILine(env, line as RecordLike);
-  }
   return { ok: true };
 }
 
@@ -1352,6 +1375,16 @@ export async function createPO(env: Env, input: RecordLike) {
     craftNotes: String(input.craftNotes ?? input.craft_notes ?? ""),
   };
   if (!env.DB) return { ok: false, message: "D1 not configured", po: payload };
+  if (payload.poType === "purchase") {
+    const invalidLine = (payload.lines as RecordLike[]).find((line) => Number(line.quantity ?? 0) <= 0 || Number(line.unitPrice ?? 0) <= 0);
+    if (!payload.poNo || !payload.plNo || !payload.sourcePiId || !payload.vendor || !payload.customer || !payload.lines.length || invalidLine) {
+      return { ok: false, message: "Invalid purchase order payload", po: payload };
+    }
+    const sourcePi = await env.DB.prepare("SELECT pl_no, stock_out_qty FROM pis WHERE id = ?1").bind(payload.sourcePiId).first<{ pl_no: string; stock_out_qty: number }>();
+    if (!sourcePi || sourcePi.pl_no !== payload.plNo || Number(sourcePi.stock_out_qty || 0) <= 0) {
+      return { ok: false, message: "Purchase order must reference a confirmed PI/PL", po: payload };
+    }
+  }
   await env.DB.prepare(
     "INSERT INTO purchase_orders (id, po_type, po_no, pl_no, source_pi_id, date, vendor, vendor_address, vendor_contact, vendor_email, vendor_tel, vendor_fax, customer, our_ref_no, delivery_date, deliver_to, status, item_code, description, product_type, size, colors, finished, remarks, lines_json, packing_rows_json, notes, image_url, order_no, maker, make_date, style_no, customer_order_no, craft_product_name, related_order_no, sheet_size, material_in, up_count, quantity, remainder, finished_qty, pack_count, print_method, proof_type, post_process, craft_notes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45)",
   )
@@ -1459,6 +1492,16 @@ export async function updatePO(env: Env, input: RecordLike) {
     craftNotes: String(input.craftNotes ?? input.craft_notes ?? ""),
   };
   if (!env.DB) return { ok: false, message: "D1 not configured" };
+  if (payload.poType === "purchase") {
+    const invalidLine = (payload.lines as RecordLike[]).find((line) => Number(line.quantity ?? 0) <= 0 || Number(line.unitPrice ?? 0) <= 0);
+    if (!payload.poNo || !payload.plNo || !payload.sourcePiId || !payload.vendor || !payload.customer || !payload.lines.length || invalidLine) {
+      return { ok: false, message: "Invalid purchase order payload" };
+    }
+    const sourcePi = await env.DB.prepare("SELECT pl_no, stock_out_qty FROM pis WHERE id = ?1").bind(payload.sourcePiId).first<{ pl_no: string; stock_out_qty: number }>();
+    if (!sourcePi || sourcePi.pl_no !== payload.plNo || Number(sourcePi.stock_out_qty || 0) <= 0) {
+      return { ok: false, message: "Purchase order must reference a confirmed PI/PL" };
+    }
+  }
   await env.DB.prepare(
     "UPDATE purchase_orders SET po_type = ?2, po_no = ?3, pl_no = ?4, source_pi_id = ?5, date = ?6, vendor = ?7, vendor_address = ?8, vendor_contact = ?9, vendor_email = ?10, vendor_tel = ?11, vendor_fax = ?12, customer = ?13, our_ref_no = ?14, delivery_date = ?15, deliver_to = ?16, status = ?17, item_code = ?18, description = ?19, product_type = ?20, size = ?21, colors = ?22, finished = ?23, remarks = ?24, lines_json = ?25, packing_rows_json = ?26, notes = ?27, image_url = ?28, order_no = ?29, maker = ?30, make_date = ?31, style_no = ?32, customer_order_no = ?33, craft_product_name = ?34, related_order_no = ?35, sheet_size = ?36, material_in = ?37, up_count = ?38, quantity = ?39, remainder = ?40, finished_qty = ?41, pack_count = ?42, print_method = ?43, proof_type = ?44, post_process = ?45, craft_notes = ?46 WHERE id = ?1",
   )

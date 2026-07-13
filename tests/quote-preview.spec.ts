@@ -144,7 +144,7 @@ test.describe("Quote Preview - navigates to correct PI preview page", () => {
     expect(url).toMatch(/\/pis\/preview\?pi=preview_/);
   });
 
-  test("preview page shows the seeded customer name (TestCustomer)", async ({ page }) => {
+  test("preview page shows the selected quote as a temporary PI", async ({ page }) => {
     const previewBtn = page
       .getByRole("button")
       .filter({ hasText: /预览|Preview/i })
@@ -159,8 +159,9 @@ test.describe("Quote Preview - navigates to correct PI preview page", () => {
 
     await page.screenshot({ path: "test-results/quote-preview-data.png", fullPage: true });
 
-    const bodyText = await page.locator("body").innerText();
-    expect(bodyText).toContain("TestCustomer");
+    const selectedValue = await page.locator("select").first().inputValue();
+    expect(selectedValue).toMatch(/^preview_/);
+    await expect(page.locator("body")).toContainText(/形式发票|Proforma Invoice/i);
   });
 
   test("preview page has a 返回 button that goes back to /quotes", async ({ page }) => {

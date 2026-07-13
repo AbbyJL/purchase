@@ -79,18 +79,39 @@ export interface QuoteTier {
   id?: string;
   quantity: string;
   unitPrice: number;
+  note?: string;
+}
+
+export interface QuoteSpec {
+  type: string;
+  size: string;
+  color: string;
+  finished: string;
+  remarks: string;
+}
+
+export interface SupplierPricing {
+  supplierName: string;
+  unitPrice: number;
+  sampleQty: number;
+  priceNotes: string;
+  costItems: QuoteCostItem[];
 }
 
 export interface QuoteLine {
   id?: string;
+  productId?: string;
   checked: boolean;
   imageUrl: string;
   productCode: string;
   productName: string;
+  quantity?: number;
   suppliers?: string[];
+  supplierPricing?: SupplierPricing[];
   price: number;
   sample: number;
   description: string;
+  spec?: QuoteSpec;
   typeValue?: string;
   sizeValue?: string;
   colorValue?: string;
@@ -100,6 +121,7 @@ export interface QuoteLine {
   pricingNotes: string;
   cost: string;
   costItems: QuoteCostItem[];
+  synshooQuoteNotes?: string;
 }
 
 export interface Quote {
@@ -170,6 +192,8 @@ export interface PILineItem {
   supplier?: string;
   quantity: number;
   unitPrice: number;
+  purchaseUnitPrice?: number;
+  customerOrderNo?: string;
   orderQty?: number;
   deductedQty?: number;
   outstandingQty?: number;
@@ -321,11 +345,61 @@ export interface Product {
 
 export interface Order {
   id: string;
+  customerOrderNo?: string;
   customer: string;
   product: string;
+  quantity: number;
+  unitPrice: number;
+  currency: "CNY" | "USD";
   status: OrderStatus;
   total: number;
   channel: string;
+}
+
+export interface PurchaseOrderLine {
+  id: string;
+  vendorCode: string;
+  vendorName: string;
+  productCode: string;
+  productName: string;
+  spec: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  quotedPrice: number;
+  minAmount: number;
+}
+
+export interface ProofingLine {
+  id: string;
+  item: string;
+  vendorInfo: string;
+  description: string;
+  unit: string;
+  proofingFee: number;
+  moldFee: number;
+  qty1: number;
+  qty2: number;
+}
+
+export interface PurchaseOrderDraft {
+  sourcePoId: string;
+  sourcePiId: string;
+  poNo: string;
+  status: PORecord["status"];
+  orderNo: string;
+  customerOrderNo: string;
+  customer: string;
+  vendor: string;
+  code: string;
+  maker: string;
+  makeDate: string;
+  reviewer: string;
+  reviewDate: string;
+  deliveryDate: string;
+  notes: string;
+  lines: PurchaseOrderLine[];
+  proofingLines: ProofingLine[];
 }
 
 export interface DashboardStat {

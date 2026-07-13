@@ -29,8 +29,12 @@ export const products: Product[] = seedProducts.map((item) => ({
 
 export const orders: Order[] = seedOrders.map((item) => ({
   id: item.id,
+  customerOrderNo: item.id,
   customer: item.customer,
   product: item.product,
+  quantity: 1,
+  unitPrice: item.total,
+  currency: "CNY",
   status: item.status as Order["status"],
   total: item.total,
   channel: item.channel,

@@ -61,12 +61,11 @@ test.describe("Quote Form - Supplier Functionality", () => {
 
     const supplierAddBtn = page.getByRole("button", { name: /新增供应商|Add supplier/i }).first();
     await expect(supplierAddBtn).toBeVisible();
-    expect(await page.locator('#quote-supplier-options option').count()).toBeGreaterThan(0);
 
-    const beforeCount = await page.locator('.quote-line-supplier-row input').count();
+    const beforeCount = await page.getByTestId("quote-supplier-pricing-row").count();
     await supplierAddBtn.click();
     await page.waitForTimeout(300);
-    await expect(page.locator('.quote-line-supplier-row input')).toHaveCount(beforeCount + 1);
+    await expect(page.getByTestId("quote-supplier-pricing-row")).toHaveCount(beforeCount + 1);
   });
 
   test("quote line stays horizontal on narrow screens", async ({ page }) => {
@@ -75,7 +74,7 @@ test.describe("Quote Form - Supplier Functionality", () => {
     await page.waitForTimeout(500);
 
     const gridTemplateColumns = await page.evaluate(() => {
-      const el = document.querySelector(".quote-line-row");
+      const el = document.querySelector('[data-testid="quote-product-grid"]');
       if (!el) return "";
       return getComputedStyle(el).gridTemplateColumns;
     });

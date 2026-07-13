@@ -111,8 +111,12 @@ type ProductDraft = {
 
 type OrderDraft = {
   id?: string;
+  customerOrderNo: string;
   customer: string;
   product: string;
+  quantity: string;
+  unitPrice: string;
+  currency: Order["currency"];
   status: Order["status"];
   total: string;
   channel: string;
@@ -327,8 +331,12 @@ const emptyDraft: ProductDraft = {
 };
 
 const emptyOrderDraft: OrderDraft = {
+  customerOrderNo: "",
   customer: "",
   product: "",
+  quantity: "",
+  unitPrice: "",
+  currency: "USD",
   status: "Pending",
   total: "",
   channel: "",
@@ -1157,7 +1165,8 @@ function calculateQuoteTier(tiers: QuoteTier[], quantityPreview: string) {
   const sorted = [...tiers].sort((a, b) => parseQuantityValue(a.quantity) - parseQuantityValue(b.quantity));
   if (!sorted.length) return null;
   if (!target) return sorted[0];
-  return sorted.find((tier) => parseQuantityValue(tier.quantity) >= target) ?? sorted[sorted.length - 1];
+  const eligible = sorted.filter((tier) => parseQuantityValue(tier.quantity) <= target);
+  return eligible[eligible.length - 1] ?? sorted[0];
 }
 
 function getQuoteCostTotal(costItems: QuoteCostItem[]) {
@@ -1184,11 +1193,11 @@ function stringifySizeDetails(details: PISizeDraft[]) {
   return details.map((line) => `${line.size}:${line.quantity}`).join("  ");
 }
 
-function formatMoney(value: number, locale: Locale) {
+function formatMoney(value: number, locale: Locale, currency: "CNY" | "USD" = "CNY") {
   return new Intl.NumberFormat(locale === "zh-CN" ? "zh-CN" : "en-US", {
     style: "currency",
-    currency: "CNY",
-    maximumFractionDigits: 0,
+    currency,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
@@ -1457,7 +1466,7 @@ function App() {
     const match = (text: string) => text.toLowerCase().includes(q);
 
     for (const item of products) {
-      if (match(item.id) || match(item.name) || match(item.codePrefix)) {
+      if (match(item.id) || match(item.name) || match(item.codePrefix ?? "")) {
         results.push({ module: "product", label: `${item.id} · ${item.name}`, sub: `样品 · ${item.categoryKey}`, path: "/products" });
       }
     }
@@ -2094,7 +2103,7 @@ function App() {
     setPIDraft({
       ...emptyPIDraft,
       piNo: createPINo(pis),
-      plNo: createRowId("PL"),
+      plNo: "",
     });
     setPILines([{ id: createLineItemId(), productCode: "", productName: "", supplier: "", quantity: 1, unitPrice: 0 }]);
     setPISizeDetails([
@@ -2158,8 +2167,12 @@ function App() {
     setEditingOrderId(order.id);
     setOrderDraft({
       id: order.id,
+      customerOrderNo: order.customerOrderNo ?? "",
       customer: order.customer,
       product: order.product,
+      quantity: String(order.quantity),
+      unitPrice: String(order.unitPrice),
+      currency: order.currency,
       status: order.status,
       total: String(order.total),
       channel: order.channel,
@@ -2549,8 +2562,8 @@ function App() {
     }
   }
 
-  async function submitQuoteDraft(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitQuoteDraft(event?: React.FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
     const normalizedLines = quoteLines
       .map((item) => normalizeQuoteLineDraft(item, item.costItems))
       .filter((item) => item.productCode.trim() || item.productName.trim() || item.description.trim())
@@ -2611,8 +2624,6 @@ function App() {
       return;
     }
 
-    setQuotes((current) => (editingQuoteId ? current.map((item) => (item.id === editingQuoteId ? draft : item)) : [draft, ...current]));
-
     try {
       if (editingQuoteId) {
         await apiUpdateQuote(draft);
@@ -2621,10 +2632,9 @@ function App() {
       }
       await refreshRemoteData();
       setNotice(t("notice.saved"));
-    } catch {
-      setNotice(t("notice.savedLocally"));
-    } finally {
       closeModal();
+    } catch {
+      setNotice("报价保存失败，数据未写入服务器，请检查网络、编号唯一性和数据库迁移。");
     }
   }
 
@@ -2870,10 +2880,44 @@ function App() {
         size: line.size.trim(),
         quantity: Number(line.quantity || 0),
       }));
+    const normalizedLines = piLines
+      .filter((line) => line.productCode.trim() || line.productName.trim())
+      .map((line) => {
+        const quantity = Math.max(0, Number(line.quantity || 0));
+        const orderQty = Math.max(0, Number(line.orderQty ?? quantity));
+        const deductedQty = Math.max(0, Number(line.deductedQty ?? 0));
+        const inStockQty = Math.max(0, Number(line.inStockQty ?? 0));
+        const stockOutQty = Math.max(0, Number(line.stockOutQty ?? 0));
+        return {
+          ...line,
+          id: line.id ?? createLineItemId(),
+          productCode: line.productCode.trim(),
+          productName: line.productName.trim(),
+          supplier: (line.supplier ?? "").trim(),
+          customerOrderNo: (line.customerOrderNo ?? piDraft.ourRefNo).trim(),
+          quantity,
+          unitPrice: Math.max(0, Number(line.unitPrice || 0)),
+          purchaseUnitPrice: Math.max(0, Number(line.purchaseUnitPrice || 0)),
+          orderQty,
+          deductedQty,
+          outstandingQty: Math.max(0, orderQty - deductedQty),
+          inStockQty,
+          stockOutQty,
+        };
+      });
+    const orderQty = normalizedLines.reduce((sum, line) => sum + line.orderQty, 0);
+    const deductedQty = normalizedLines.reduce((sum, line) => sum + line.deductedQty, 0);
+    const outstandingQty = Math.max(0, orderQty - deductedQty);
+    const inStockQty = normalizedLines.reduce((sum, line) => sum + line.inStockQty, 0);
+    const stockOutQty = normalizedLines.reduce((sum, line) => sum + line.stockOutQty, 0);
+    const normalizedPiNo = normalizePINo(piDraft.piNo.trim(), pis, piDraft.deliveryDate);
+    const plNo = stockOutQty > 0 && piDraft.status !== "Draft"
+      ? piDraft.plNo.trim() || normalizedPiNo.replace(/^PI/i, "PL")
+      : "";
     const draft = {
       id: editingPIId ?? createRowId("PI"),
-      piNo: normalizePINo(piDraft.piNo.trim()),
-      plNo: piDraft.plNo.trim(),
+      piNo: normalizedPiNo,
+      plNo,
       customer: piDraft.customer.trim(),
       brand: piDraft.brand.trim(),
       vendor: piDraft.vendor.trim(),
@@ -2889,11 +2933,11 @@ function App() {
       commercialInvoiceGeneratedAt: piDraft.commercialInvoiceGeneratedAt.trim(),
       paymentConfirmedAt: piDraft.paymentConfirmedAt.trim(),
       pdfUrl: piDraft.pdfUrl.trim(),
-      orderQty: Number(piDraft.orderQty) || 0,
-      deductedQty: Number(piDraft.deductedQty) || 0,
-      outstandingQty: Number(piDraft.outstandingQty) || 0,
-      inStockQty: Number(piDraft.inStockQty) || 0,
-      stockOutQty: Number(piDraft.stockOutQty) || 0,
+      orderQty,
+      deductedQty,
+      outstandingQty,
+      inStockQty,
+      stockOutQty,
       itemCode: piDraft.itemCode.trim(),
       description: piDraft.description.trim(),
       productType: piDraft.productType.trim(),
@@ -2903,22 +2947,42 @@ function App() {
       remarks: piDraft.remarks.trim(),
       imageUrl: piDraft.imageUrl.trim(),
       sizeDetails: normalizedSizeDetails,
-      lines: piLines
-        .filter((line) => line.productCode.trim() || line.productName.trim())
-        .map((line) => ({
-          ...line,
-          id: line.id ?? createLineItemId(),
-          productCode: line.productCode.trim(),
-          productName: line.productName.trim(),
-          supplier: (line.supplier ?? "").trim(),
-          quantity: Number(line.quantity || 0),
-          unitPrice: Number(line.unitPrice || 0),
-        })),
+      lines: normalizedLines,
       notes: piDraft.notes.trim(),
     } satisfies PIRecord;
 
     if (!draft.piNo || !draft.customer || !draft.brand) {
       setNotice(t("notice.piRequired"));
+      return;
+    }
+
+    if (!draft.lines.length || draft.orderQty <= 0) {
+      setNotice("PI 至少需要一条数量大于 0 的有效明细。");
+      return;
+    }
+
+    const invalidQuantityLine = draft.lines.find((line) =>
+      Number(line.deductedQty || 0) > Number(line.orderQty || 0)
+      || Number(line.stockOutQty || 0) > Number(line.outstandingQty || 0)
+      || Number(line.stockOutQty || 0) > Number(line.inStockQty || 0),
+    );
+    if (invalidQuantityLine) {
+      setNotice(`明细 ${invalidQuantityLine.productCode || invalidQuantityLine.productName} 的已扣、未交、库存或出库数量不符合约束。`);
+      return;
+    }
+
+    if (draft.deductedQty > draft.orderQty) {
+      setNotice("已扣数量不能超过订单数量。");
+      return;
+    }
+
+    if (draft.stockOutQty > draft.outstandingQty || draft.stockOutQty > draft.inStockQty) {
+      setNotice("出库数量不能超过未交数量或当前库存。");
+      return;
+    }
+
+    if (draft.stockOutQty > 0 && draft.status === "Draft") {
+      setNotice("确认出库前请将 PI 状态改为已生成、已发送或已关闭；确认后系统才生成 PL。");
       return;
     }
 
@@ -2928,9 +2992,6 @@ function App() {
       return;
     }
 
-    setPIs((current) => (editingPIId ? current.map((item) => (item.id === editingPIId ? draft : item)) : [draft, ...current]));
-    setProducts((current) => syncProductsFromPILines(current, draft.lines));
-
     try {
       if (editingPIId) {
         await apiUpdatePI(draft);
@@ -2939,10 +3000,9 @@ function App() {
       }
       await refreshRemoteData();
       setNotice(t("notice.saved"));
-    } catch {
-      setNotice(t("notice.savedLocally"));
-    } finally {
       closeModal();
+    } catch {
+      setNotice("PI 保存失败，数据未写入服务器，请检查必填项、编号唯一性和数据库迁移。");
     }
   }
 
@@ -2961,29 +3021,55 @@ function App() {
     }
   }
 
-function generatePIFromQuote(quote: Quote) {
+  function buildPILinesFromQuote(quote: Quote): PILineItem[] {
+    return quote.lines
+      .filter((line) => line.checked && (line.productCode.trim() || line.productName.trim() || line.description.trim()))
+      .map((line) => {
+        const quantity = Number(line.quantity || 0) > 0
+          ? Number(line.quantity)
+          : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1"));
+        const product = products.find(
+          (item) => item.id === line.productId || item.id === line.productCode.trim() || item.name === line.productName.trim(),
+        );
+        const supplierPrice = line.supplierPricing?.find((item) => item.supplierName.trim());
+        const supplier = supplierPrice?.supplierName.trim()
+          || line.suppliers?.find((item) => item.trim())?.trim()
+          || product?.suppliers[0]
+          || "";
+        const customerUnitPrice = getQuoteUnitPrice(quote, String(quantity)) || Number(line.price || 0);
+
+        return {
+          id: line.id ?? createLineItemId(),
+          productCode: line.productCode.trim(),
+          productName: line.productName.trim(),
+          supplier,
+          quantity,
+          unitPrice: customerUnitPrice,
+          purchaseUnitPrice: Number(supplierPrice?.unitPrice ?? line.price ?? 0),
+          orderQty: quantity,
+          deductedQty: 0,
+          outstandingQty: quantity,
+          inStockQty: Number(product?.stock ?? 0),
+          stockOutQty: 0,
+        };
+      });
+  }
+
+  function generatePIFromQuote(quote: Quote) {
     const now = new Date().toISOString();
-    const firstQuoteLine = quote.lines[0];
-    const quoteQty = quote.lines.reduce((sum, line) => {
-      const lineQty = Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1"));
-      return sum + lineQty;
-    }, 0);
-    const normalizedQuoteLines = quote.lines
-      .filter((line) => line.productCode.trim() || line.productName.trim() || line.description.trim())
-      .map((line) => ({
-        id: line.id ?? createLineItemId(),
-        productCode: line.productCode.trim(),
-        productName: line.productName.trim(),
-        supplier: line.suppliers?.find((item) => item.trim()) ?? products.find((item) => item.id === line.productCode.trim() || item.name === line.productName.trim())?.suppliers[0] ?? "",
-        quantity: Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
-        unitPrice: Number(line.price || 0) || getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1"),
-      }));
-    const firstLine = normalizedQuoteLines[0] ?? firstQuoteLine;
+    const normalizedQuoteLines = buildPILinesFromQuote(quote);
+    if (!normalizedQuoteLines.length) {
+      setNotice("请先勾选至少一个有效的报价明细，再生成 PI。");
+      return;
+    }
+    const firstQuoteLine = quote.lines.find((line) => line.checked) ?? quote.lines[0];
+    const firstLine = normalizedQuoteLines[0];
+    const quoteQty = normalizedQuoteLines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
     setEditingPIId(null);
     setPIDraft({
       ...emptyPIDraft,
       piNo: createPINo(pis),
-      plNo: createRowId("PL"),
+      plNo: "",
       customer: quote.customer,
       brand: quote.brand,
       vendor: "",
@@ -3002,8 +3088,8 @@ function generatePIFromQuote(quote: Quote) {
       orderQty: quoteQty || 0,
       deductedQty: 0,
       outstandingQty: quoteQty || 0,
-      inStockQty: quoteQty || 0,
-      stockOutQty: quoteQty || 0,
+      inStockQty: normalizedQuoteLines.reduce((sum, line) => sum + Number(line.inStockQty || 0), 0),
+      stockOutQty: 0,
       itemCode: quote.productCode || firstLine?.productCode || "",
       description: quote.item || quote.productName || firstLine?.productName || "",
       productType: quote.itemType || quote.productName || "",
@@ -3014,23 +3100,7 @@ function generatePIFromQuote(quote: Quote) {
       imageUrl: quote.imageUrl || firstQuoteLine?.imageUrl || "",
       notes: `Generated from quote ${quote.id}`,
     });
-    setPILines(
-      normalizedQuoteLines.length
-        ? normalizedQuoteLines
-        : [
-            {
-              id: createLineItemId(),
-              productCode: quote.productCode || firstLine?.productCode || "",
-              productName: quote.productName || firstLine?.productName || "",
-              supplier:
-                firstLine?.supplier ||
-                products.find((item) => item.id === quote.productCode || item.name === quote.productName || item.id === firstLine?.productCode || item.name === firstLine?.productName)?.suppliers[0] ||
-                "",
-              quantity: Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
-              unitPrice: getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1") || firstQuoteLine?.price || 0,
-            },
-          ],
-    );
+    setPILines(normalizedQuoteLines);
     setPISizeDetails([]);
     setNotice(null);
     setActiveModal("pi");
@@ -3038,27 +3108,19 @@ function generatePIFromQuote(quote: Quote) {
 
   function previewPIFromQuote(quote: Quote) {
     const now = new Date().toISOString();
-    const firstQuoteLine = quote.lines[0];
-    const quoteQty = quote.lines.reduce((sum, line) => {
-      const lineQty = Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1"));
-      return sum + lineQty;
-    }, 0);
-    const normalizedQuoteLines = quote.lines
-      .filter((line) => line.productCode.trim() || line.productName.trim() || line.description.trim())
-      .map((line) => ({
-        id: line.id ?? createLineItemId(),
-        productCode: line.productCode.trim(),
-        productName: line.productName.trim(),
-        supplier: line.suppliers?.find((item) => item.trim()) ?? products.find((item) => item.id === line.productCode.trim() || item.name === line.productName.trim())?.suppliers[0] ?? "",
-        quantity: Number(line.sample || 0) > 0 ? Number(line.sample || 0) : Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
-        unitPrice: Number(line.price || 0) || getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1"),
-      }));
-    const firstLine = normalizedQuoteLines[0] ?? firstQuoteLine;
+    const normalizedQuoteLines = buildPILinesFromQuote(quote);
+    if (!normalizedQuoteLines.length) {
+      setNotice("请先勾选至少一个有效的报价明细，再预览 PI。");
+      return;
+    }
+    const firstQuoteLine = quote.lines.find((line) => line.checked) ?? quote.lines[0];
+    const firstLine = normalizedQuoteLines[0];
+    const quoteQty = normalizedQuoteLines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
     const previewId = `preview_${quote.id}`;
     const previewPI: PIRecord = {
       id: previewId,
       piNo: quote.piNo || quote.quoteNo || previewId,
-      plNo: `PREVIEW-${createRowId("PL")}`,
+      plNo: "",
       customer: quote.customer,
       brand: quote.brand,
       vendor: "",
@@ -3077,8 +3139,8 @@ function generatePIFromQuote(quote: Quote) {
       orderQty: quoteQty || 0,
       deductedQty: 0,
       outstandingQty: quoteQty || 0,
-      inStockQty: quoteQty || 0,
-      stockOutQty: quoteQty || 0,
+      inStockQty: normalizedQuoteLines.reduce((sum, line) => sum + Number(line.inStockQty || 0), 0),
+      stockOutQty: 0,
       itemCode: quote.productCode || firstLine?.productCode || "",
       description: quote.item || quote.productName || firstLine?.productName || "",
       productType: quote.itemType || quote.productName || "",
@@ -3088,16 +3150,7 @@ function generatePIFromQuote(quote: Quote) {
       remarks: quote.notes || "",
       imageUrl: quote.imageUrl || firstQuoteLine?.imageUrl || "",
       sizeDetails: [],
-      lines: normalizedQuoteLines.length
-        ? normalizedQuoteLines
-        : [{
-            id: createLineItemId(),
-            productCode: quote.productCode || firstLine?.productCode || "",
-            productName: quote.productName || firstLine?.productName || "",
-            supplier: firstLine?.supplier ?? products.find((item) => item.id === quote.productCode || item.name === quote.productName || item.id === firstLine?.productCode || item.name === firstLine?.productName)?.suppliers[0] ?? "",
-            quantity: Math.max(1, parseQuantityValue(quote.tiers[0]?.quantity ?? "1")),
-            unitPrice: getQuoteUnitPrice(quote, quote.tiers[0]?.quantity ?? "1") || Number(firstQuoteLine?.price) || 0,
-          }],
+      lines: normalizedQuoteLines,
       notes: `Preview from quote ${quote.id}`,
     };
     setPIs((current) => {
@@ -3113,11 +3166,11 @@ function generatePIFromQuote(quote: Quote) {
     setPIDraft({
       ...emptyPIDraft,
       piNo: createPINo(pis),
-      plNo: createRowId("PL"),
+      plNo: "",
       customer: order.customer,
       brand: "",
       vendor: "",
-      ourRefNo: order.id,
+      ourRefNo: order.customerOrderNo || order.id,
       deliveryDate: "",
       deliverTo: "",
       status: "Generated",
@@ -3129,11 +3182,11 @@ function generatePIFromQuote(quote: Quote) {
       commercialInvoiceGeneratedAt: "",
       paymentConfirmedAt: "",
       pdfUrl: "",
-      orderQty: 1,
+      orderQty: order.quantity,
       deductedQty: 0,
-      outstandingQty: 1,
-      inStockQty: 1,
-      stockOutQty: 1,
+      outstandingQty: order.quantity,
+      inStockQty: products.find((item) => item.id === order.product || item.name === order.product)?.stock ?? 0,
+      stockOutQty: 0,
       itemCode: order.id,
       description: order.product,
       productType: order.channel,
@@ -3150,8 +3203,15 @@ function generatePIFromQuote(quote: Quote) {
         productCode: order.product,
         productName: order.product,
         supplier: products.find((item) => item.id === order.product || item.name === order.product)?.suppliers[0] ?? "",
-        quantity: 1,
-        unitPrice: order.total,
+        quantity: order.quantity,
+        unitPrice: order.unitPrice,
+        purchaseUnitPrice: 0,
+        customerOrderNo: order.customerOrderNo || order.id,
+        orderQty: order.quantity,
+        deductedQty: 0,
+        outstandingQty: order.quantity,
+        inStockQty: products.find((item) => item.id === order.product || item.name === order.product)?.stock ?? 0,
+        stockOutQty: 0,
       },
     ]);
     setPISizeDetails([]);
@@ -3161,24 +3221,24 @@ function generatePIFromQuote(quote: Quote) {
 
   async function submitOrderDraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const quantity = Number(orderDraft.quantity);
+    const unitPrice = Number(orderDraft.unitPrice);
     const draft = {
       id: editingOrderId ?? `OR${Date.now().toString().slice(-6)}`,
+      customerOrderNo: orderDraft.customerOrderNo.trim(),
       customer: orderDraft.customer.trim(),
       product: orderDraft.product.trim(),
+      quantity,
+      unitPrice,
+      currency: orderDraft.currency,
       status: orderDraft.status,
-      total: Number(orderDraft.total),
+      total: Number((quantity * unitPrice).toFixed(2)),
       channel: orderDraft.channel.trim(),
     } satisfies Order;
 
-    if (!draft.customer || !draft.product || !draft.total) {
+    if (!draft.customerOrderNo || !draft.customer || !draft.product || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) {
       setNotice(t("notice.orderRequired"));
       return;
-    }
-
-    if (editingOrderId) {
-      setOrders((current) => current.map((item) => (item.id === editingOrderId ? draft : item)));
-    } else {
-      setOrders((current) => [draft, ...current]);
     }
 
     try {
@@ -3190,7 +3250,7 @@ function generatePIFromQuote(quote: Quote) {
       await refreshRemoteData();
       setNotice(t("notice.saved"));
     } catch {
-      setNotice(t("notice.savedLocally"));
+      setNotice("订单保存失败，数据未写入服务器，请检查网络或数据库迁移。 ");
     } finally {
       closeModal();
     }
@@ -3282,25 +3342,53 @@ function generatePIFromQuote(quote: Quote) {
       ...emptyPODraft,
       sourcePiId: sourcePi.id,
       customer: sourcePi.customer,
-      plNo: sourcePi.plNo || createRowId("PL"),
+      plNo: sourcePi.plNo || "",
       vendor: vendorName ?? "",
     } : { ...emptyPODraft });
     setNotice(null);
     setActiveModal("po");
   }
 
-  function generatePOsFromPI(pi: PIRecord, vendorNames: string[]) {
-    // 为每个供应商生成一张 PO
+  async function generatePOsFromPI(pi: PIRecord, vendorNames: string[]) {
+    if (!pi.plNo || Number(pi.stockOutQty || 0) <= 0) {
+      setNotice("请先在 PI 中确认出库数量并保存，由系统生成 PL 后再生成采购单。");
+      return;
+    }
+
+    const selectedVendors = Array.from(new Set(vendorNames.map((name) => name.trim()).filter(Boolean)))
+      .filter((name) => !pos.some((po) => po.sourcePiId === pi.id && po.vendor === name));
+    if (!selectedVendors.length) {
+      setNotice("所选供应商的采购单已存在，没有重复生成。");
+      return;
+    }
+
+    const unassignedLines = pi.lines.filter((line) => {
+      const supplier = (line.supplier ?? "").trim();
+      return !supplier || !selectedVendors.includes(supplier);
+    });
+    if (selectedVendors.length > 1 && unassignedLines.length) {
+      setNotice("每条 PI 明细必须指定一个已勾选的供应商，才能按供应商拆分采购单。");
+      return;
+    }
+
+    const invalidPriceLine = pi.lines.find((line) => Number(line.purchaseUnitPrice || 0) <= 0);
+    if (invalidPriceLine) {
+      setNotice(`请先填写 ${invalidPriceLine.productCode || invalidPriceLine.productName || "PI 明细"} 的采购单价。`);
+      return;
+    }
+
     const now = new Date().toISOString();
-    const newPOs: PORecord[] = vendorNames.map((vendor) => {
-      const poNo = createPONo(pos);
-      return {
+    const stagedPOs: PORecord[] = [];
+    for (const vendor of selectedVendors) {
+      const vendorLines = pi.lines.filter((line) => selectedVendors.length === 1 || (line.supplier ?? "").trim() === vendor);
+      if (!vendorLines.length) continue;
+      const poNo = createPONo([...pos, ...stagedPOs]);
+      stagedPOs.push({
         id: `po_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         poType: "purchase" as const,
         poNo,
-        plNo: pi.plNo || createRowId("PL"),
+        plNo: pi.plNo,
         sourcePiId: pi.id,
-        sourcePiNo: pi.piNo,
         date: new Date().toISOString().slice(0, 10),
         vendor,
         vendorAddress: suppliers.find((s) => s.name === vendor)?.address ?? "",
@@ -3320,6 +3408,16 @@ function generatePIFromQuote(quote: Quote) {
         colors: pi.colors,
         finished: pi.finished,
         remarks: pi.remarks,
+        lines: vendorLines.map((line) => ({
+          id: line.id ?? createLineItemId(),
+          itemCode: line.productCode,
+          itemDescription: line.productName,
+          quantity: Number(line.quantity || 0),
+          unitPrice: Number(line.purchaseUnitPrice || 0),
+          productCode: line.productCode,
+          productName: line.productName,
+        })),
+        packingRows: [],
         notes: "",
         imageUrl: pi.imageUrl,
         orderNo: "",
@@ -3338,22 +3436,34 @@ function generatePIFromQuote(quote: Quote) {
         packCount: "",
         printMethod: [],
         proofType: [],
+        postProcess: [],
         craftRemarks: "",
         craftNotes: "",
         craftImageUrl: "",
         createdAt: now,
         updatedAt: now,
-      };
-    });
-    setPOs((current) => [...newPOs, ...current]);
-    // 更新 PI 的 sourcePoIds
-    setPIs((current) => current.map((p) => {
-      if (p.id !== pi.id) return p;
-      return { ...p, sourcePoIds: [...(p.sourcePoIds || []), ...newPOs.map((po) => po.id)] };
-    }));
-    // 持久化
-    newPOs.forEach((po) => apiCreatePO(po).catch(() => {}));
-    setNotice(`已生成 ${newPOs.length} 张采购单`);
+      } as PORecord);
+    }
+
+    if (!stagedPOs.length) {
+      setNotice("没有可生成采购单的 PI 明细。");
+      return;
+    }
+
+    try {
+      for (const po of stagedPOs) {
+        await apiCreatePO(po);
+      }
+      const nextPi = updatePITimeline(pi, {
+        purchaseGeneratedAt: touchTimelineValue(pi.purchaseGeneratedAt, now),
+      });
+      await apiUpdatePI(nextPi);
+      await refreshRemoteData();
+      setNotice(`已按供应商生成 ${stagedPOs.length} 张采购单。`);
+    } catch {
+      await refreshRemoteData().catch(() => undefined);
+      setNotice("采购单生成失败或只完成了部分写入，请检查数据库状态后重试；系统不会显示虚假的成功提示。");
+    }
   }
 
   function startCreateCraft() {
@@ -3476,11 +3586,28 @@ function generatePIFromQuote(quote: Quote) {
   async function submitPODraft(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const now = new Date().toISOString();
+    const sourcePiId = poDraft.sourcePiId.trim();
+    const linkedPi = sourcePiId ? pis.find((item) => item.id === sourcePiId || item.piNo === sourcePiId) ?? null : null;
+    const existingPO = editingPoId ? pos.find((item) => item.id === editingPoId) ?? null : null;
+    const sourceLines = linkedPi
+      ? linkedPi.lines.filter((line) => !(line.supplier ?? "").trim() || (line.supplier ?? "").trim() === poDraft.vendor.trim())
+      : [];
+    const poLines = sourceLines.length
+      ? sourceLines.map((line) => ({
+          id: line.id ?? createLineItemId(),
+          itemCode: line.productCode,
+          itemDescription: line.productName,
+          quantity: Number(line.quantity || 0),
+          unitPrice: Number(line.purchaseUnitPrice || 0),
+          productCode: line.productCode,
+          productName: line.productName,
+        }))
+      : existingPO?.lines ?? [];
     const draft = {
       id: editingPoId ?? createRowId("PO"),
       poNo: poDraft.poNo.trim() || createRowId("PO"),
       plNo: (poDraft.plNo ?? "").trim(),
-      sourcePiId: poDraft.sourcePiId.trim(),
+      sourcePiId,
       date: poDraft.date,
       vendor: poDraft.vendor.trim(),
       vendorAddress: poDraft.vendorAddress.trim(),
@@ -3500,8 +3627,8 @@ function generatePIFromQuote(quote: Quote) {
       colors: poDraft.colors.trim(),
       finished: poDraft.finished.trim(),
       remarks: poDraft.remarks.trim(),
-      lines: [],
-      packingRows: [],
+      lines: poLines,
+      packingRows: existingPO?.packingRows ?? [],
       notes: poDraft.notes.trim(),
       imageUrl: poDraft.imageUrl.trim(),
       poType: "purchase" as const,
@@ -3525,28 +3652,26 @@ function generatePIFromQuote(quote: Quote) {
       craftNotes: "",
     } satisfies PORecord;
 
-    const linkedPi = draft.sourcePiId ? pis.find((item) => item.id === draft.sourcePiId || item.piNo === draft.sourcePiId) ?? null : null;
     const nextPi = linkedPi
       ? updatePITimeline(linkedPi, {
           purchaseGeneratedAt: touchTimelineValue(linkedPi.purchaseGeneratedAt, now),
-          financeApprovedAt:
-            draft.status !== "Draft" ? touchTimelineValue(linkedPi.financeApprovedAt, now) : linkedPi.financeApprovedAt,
-          packingInfoGeneratedAt:
-            draft.status === "Sent" || draft.status === "Closed"
-              ? touchTimelineValue(linkedPi.packingInfoGeneratedAt, now)
-              : linkedPi.packingInfoGeneratedAt,
-          commercialInvoiceGeneratedAt: linkedPi.commercialInvoiceGeneratedAt,
-          paymentConfirmedAt:
-            draft.status === "Closed" ? touchTimelineValue(linkedPi.paymentConfirmedAt, now) : linkedPi.paymentConfirmedAt,
         })
       : null;
 
-    if (!draft.poNo || !draft.customer) {
+    if (!draft.poNo || !draft.customer || !draft.vendor) {
       setNotice(t("notice.poRequired"));
       return;
     }
 
-    setPOs((current) => (editingPoId ? current.map((item) => (item.id === editingPoId ? draft : item)) : [draft, ...current]));
+    if (linkedPi && (!linkedPi.plNo || Number(linkedPi.stockOutQty || 0) <= 0)) {
+      setNotice("关联 PI 尚未确认出库并生成 PL，不能创建采购单。");
+      return;
+    }
+
+    if (linkedPi && (!draft.lines.length || draft.lines.some((line) => line.quantity <= 0 || line.unitPrice <= 0))) {
+      setNotice("采购单明细的数量和采购单价必须大于 0。");
+      return;
+    }
 
     try {
       if (editingPoId) {
@@ -3554,24 +3679,14 @@ function generatePIFromQuote(quote: Quote) {
       } else {
         await apiCreatePO(draft);
       }
-      let piSynced = false;
       if (nextPi) {
-        try {
-          await apiUpdatePI(nextPi);
-          piSynced = true;
-        } catch {
-          piSynced = false;
-        }
+        await apiUpdatePI(nextPi);
       }
       await refreshRemoteData();
-      if (nextPi && !piSynced) {
-        setPIs((current) => current.map((item) => (item.id === nextPi.id ? nextPi : item)));
-      }
       setNotice(t("notice.saved"));
-    } catch {
-      setNotice(t("notice.savedLocally"));
-    } finally {
       closeModal();
+    } catch {
+      setNotice("采购单保存失败，数据未写入服务器，请检查关联 PL、采购价和数据库迁移。");
     }
   }
 
@@ -3692,12 +3807,11 @@ function generatePIFromQuote(quote: Quote) {
   const openProformaInvoicePreview = (pi: PIRecord) => {
     navigate(`/pis/preview?pi=${encodeURIComponent(pi.id)}`);
   };
-  const selectedCommercialInvoiceId = new URLSearchParams(location.search).get("ci") ?? pos[0]?.id ?? "";
+  const selectedCommercialInvoiceId = new URLSearchParams(location.search).get("ci") ?? pis.find((item) => item.plNo)?.id ?? "";
   const selectedCommercialInvoice = useMemo(
-    () => pos.find((item) => item.id === selectedCommercialInvoiceId || item.poNo === selectedCommercialInvoiceId || item.plNo === selectedCommercialInvoiceId) ?? pos[0] ?? null,
-    [pos, selectedCommercialInvoiceId],
+    () => pis.find((item) => item.id === selectedCommercialInvoiceId || item.piNo === selectedCommercialInvoiceId || item.plNo === selectedCommercialInvoiceId) ?? pis.find((item) => item.plNo) ?? null,
+    [pis, selectedCommercialInvoiceId],
   );
-  const selectedCommercialInvoiceVendor = getPurchaseOrderVendor(selectedCommercialInvoice);
   const selectedCommercialInvoiceCustomer = getPartyDetails(
     customers.find((item) => item.name === selectedCommercialInvoice?.customer) ?? (selectedCommercialInvoice?.customer ? {
       name: selectedCommercialInvoice.customer,
@@ -3707,8 +3821,8 @@ function generatePIFromQuote(quote: Quote) {
       email: "",
     } : null),
   );
-  const openCommercialInvoice = (poId: string) => {
-    navigate(`/commercial-invoices?ci=${encodeURIComponent(poId)}`);
+  const openCommercialInvoice = (piId: string) => {
+    navigate(`/commercial-invoices?ci=${encodeURIComponent(piId)}`);
   };
   const openPurchaseOrderPreviewFromPI = (pi: PIRecord) => {
     const po = getLinkedPOForPI(pi);
@@ -3719,25 +3833,12 @@ function generatePIFromQuote(quote: Quote) {
     openPurchaseOrder(po.id);
   };
   const openCommercialInvoiceFromPI = (pi: PIRecord) => {
-    const po = getLinkedPOForPI(pi);
-    if (!po) {
-      setNotice(t("notice.noLinkedPO"));
+    if (!pi.plNo || Number(pi.stockOutQty || 0) <= 0) {
+      setNotice("PI 尚未确认出库并生成 PL，不能生成商业发票。");
       return;
     }
-    const now = new Date().toISOString();
-    const nextPi = updatePITimeline(pi, {
-      commercialInvoiceGeneratedAt: touchTimelineValue(pi.commercialInvoiceGeneratedAt, now),
-    });
-    setPIs((current) => current.map((item) => (item.id === nextPi.id ? nextPi : item)));
-    apiUpdatePI(nextPi).catch(() => {
-      setPIs((current) => current.map((item) => (item.id === nextPi.id ? nextPi : item)));
-    });
-    openCommercialInvoice(po.id);
+    openCommercialInvoice(pi.id);
   };
-  const [poGenSourcePi, setPoGenSourcePi] = useState<PIRecord | null>(null);
-  const [showPOCVendorModal, setShowPOCVendorModal] = useState(false);
-  const [poGenVendors, setPoGenVendors] = useState<string[]>([]);
-
   const openPurchaseOrderFromPI = (pi: PIRecord) => {
     // 跳转到 PI 预览页，并自动弹出供应商选择弹窗
     navigate(`/pis/preview?pi=${encodeURIComponent(pi.id)}&genpo=1`);
@@ -4053,11 +4154,13 @@ function generatePIFromQuote(quote: Quote) {
                 t={t}
                 pis={pis}
                 pos={pos}
+                suppliers={suppliers}
                 selectedPi={selectedPi}
                 selectedPiCustomer={selectedPiCustomer}
                 selectedPiVendor={selectedPiVendor}
                 onSelectPi={(piId) => navigate(`/pis/preview?pi=${encodeURIComponent(piId)}`)}
                 onExportPdf={() => window.print()}
+                onGeneratePOs={generatePOsFromPI}
               />
             }
           />
@@ -4069,11 +4172,13 @@ function generatePIFromQuote(quote: Quote) {
                 t={t}
                 pis={pis}
                 pos={pos}
+                suppliers={suppliers}
                 selectedPi={selectedPi}
                 selectedPiCustomer={selectedPiCustomer}
                 selectedPiVendor={selectedPiVendor}
                 onSelectPi={(piId) => navigate(`/pis/print?pi=${encodeURIComponent(piId)}`)}
                 onExportPdf={() => window.print()}
+                onGeneratePOs={generatePOsFromPI}
               />
             }
           />
@@ -4106,14 +4211,13 @@ function generatePIFromQuote(quote: Quote) {
           <Route
             path="/commercial-invoices"
             element={
-              <CommercialInvoicePage
+              <CommercialInvoiceFromPLPage
                 locale={locale}
                 t={t}
-                pos={pos as PORecord[]}
-                selectedPo={selectedCommercialInvoice as PORecord | null}
-                selectedPoVendor={selectedCommercialInvoiceVendor}
-                selectedPoCustomer={selectedCommercialInvoiceCustomer}
-                onSelectPo={openCommercialInvoice}
+                pis={pis}
+                selectedPi={selectedCommercialInvoice}
+                selectedPiCustomer={selectedCommercialInvoiceCustomer}
+                onSelectPi={openCommercialInvoice}
                 onExportPdf={() => window.print()}
               />
             }
@@ -4453,6 +4557,14 @@ function generatePIFromQuote(quote: Quote) {
           <EditorModal title={editingCustomerId ? t("form.editCustomer") : t("form.createCustomer")} onClose={closeModal}>
             <form className="modal-form" onSubmit={submitCustomerDraft}>
               <div className="form-grid">
+                <label>
+                  <span>{t("form.customerOrderNo")}</span>
+                  <input
+                    value={orderDraft.customerOrderNo}
+                    onChange={(event) => setOrderDraft({ ...orderDraft, customerOrderNo: event.target.value })}
+                    placeholder="Customer PO No."
+                  />
+                </label>
                 <label>
                   <span>{t("form.customerName")}</span>
                   <input value={customerDraft.name} onChange={(event) => setCustomerDraft({ ...customerDraft, name: event.target.value })} />
@@ -4884,7 +4996,7 @@ function generatePIFromQuote(quote: Quote) {
                 <div className="pi-meta-grid">
                   <label>
                     <span>{t("form.piPlNo")}</span>
-                    <input value={piDraft.plNo} onChange={(event) => setPIDraft({ ...piDraft, plNo: event.target.value })} />
+                    <input value={piDraft.plNo} readOnly placeholder={t("form.piPlAutoPlaceholder")} />
                   </label>
                   <label>
                     <span>{t("form.piNo")}</span>
@@ -4954,23 +5066,23 @@ function generatePIFromQuote(quote: Quote) {
                 <div className="pi-meta-grid">
                   <label>
                     <span>{t("form.piOrderQty")}</span>
-                    <input type="number" min="0" value={piDraft.orderQty} onChange={(event) => setPIDraft({ ...piDraft, orderQty: Number(event.target.value) })} />
+                    <input type="number" min="0" readOnly value={piLines.reduce((sum, line) => sum + Math.max(0, Number(line.orderQty ?? line.quantity ?? 0)), 0)} />
                   </label>
                   <label>
                     <span>{t("form.piDeductedQty")}</span>
-                    <input type="number" min="0" value={piDraft.deductedQty} onChange={(event) => setPIDraft({ ...piDraft, deductedQty: Number(event.target.value) })} />
+                    <input type="number" min="0" readOnly value={piLines.reduce((sum, line) => sum + Math.max(0, Number(line.deductedQty ?? 0)), 0)} />
                   </label>
                   <label>
                     <span>{t("form.piOutstandingQty")}</span>
-                    <input type="number" min="0" value={piDraft.outstandingQty} onChange={(event) => setPIDraft({ ...piDraft, outstandingQty: Number(event.target.value) })} />
+                    <input type="number" min="0" readOnly value={piLines.reduce((sum, line) => sum + Math.max(0, Number(line.orderQty ?? line.quantity ?? 0) - Number(line.deductedQty ?? 0)), 0)} />
                   </label>
                   <label>
                     <span>{t("form.piInStockQty")}</span>
-                    <input type="number" min="0" value={piDraft.inStockQty} onChange={(event) => setPIDraft({ ...piDraft, inStockQty: Number(event.target.value) })} />
+                    <input type="number" min="0" readOnly value={piLines.reduce((sum, line) => sum + Math.max(0, Number(line.inStockQty ?? 0)), 0)} />
                   </label>
                   <label>
                     <span>{t("form.piStockOutQty")}</span>
-                    <input type="number" min="0" value={piDraft.stockOutQty} onChange={(event) => setPIDraft({ ...piDraft, stockOutQty: Number(event.target.value) })} />
+                    <input type="number" min="0" readOnly value={piLines.reduce((sum, line) => sum + Math.max(0, Number(line.stockOutQty ?? 0)), 0)} />
                   </label>
                 </div>
               </section>
@@ -5132,6 +5244,26 @@ function generatePIFromQuote(quote: Quote) {
                         <span>{t("form.lineUnitPrice")}</span>
                         <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, unitPrice: Number(event.target.value) } : row)))} placeholder={t("form.lineUnitPrice")} />
                       </label>
+                      <label>
+                        <span>{t("form.linePurchaseUnitPrice")}</span>
+                        <input type="number" min="0" step="0.01" value={line.purchaseUnitPrice ?? 0} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, purchaseUnitPrice: Number(event.target.value) } : row)))} />
+                      </label>
+                      <label>
+                        <span>{t("form.customerOrderNo")}</span>
+                        <input value={line.customerOrderNo ?? piDraft.ourRefNo} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, customerOrderNo: event.target.value } : row)))} />
+                      </label>
+                      <label>
+                        <span>{t("form.piDeductedQty")}</span>
+                        <input type="number" min="0" max={line.orderQty ?? line.quantity} value={line.deductedQty ?? 0} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, deductedQty: Number(event.target.value), outstandingQty: Math.max(0, Number(row.orderQty ?? row.quantity) - Number(event.target.value)) } : row)))} />
+                      </label>
+                      <label>
+                        <span>{t("form.piInStockQty")}</span>
+                        <input type="number" min="0" value={line.inStockQty ?? 0} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, inStockQty: Number(event.target.value) } : row)))} />
+                      </label>
+                      <label>
+                        <span>{t("form.piStockOutQty")}</span>
+                        <input type="number" min="0" max={Math.min(Number(line.outstandingQty ?? line.quantity), Number(line.inStockQty ?? 0))} value={line.stockOutQty ?? 0} onChange={(event) => setPILines((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, stockOutQty: Number(event.target.value) } : row)))} />
+                      </label>
                     </div>
                   </div>
                 ))}
@@ -5184,6 +5316,25 @@ function generatePIFromQuote(quote: Quote) {
                   />
                 </label>
                 <label>
+                  <span>{t("form.orderQuantity")}</span>
+                  <input type="number" min="1" step="1" value={orderDraft.quantity} onChange={(event) => setOrderDraft({ ...orderDraft, quantity: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("form.orderUnitPrice")}</span>
+                  <input type="number" min="0" step="0.01" value={orderDraft.unitPrice} onChange={(event) => setOrderDraft({ ...orderDraft, unitPrice: event.target.value })} />
+                </label>
+                <label>
+                  <span>{t("form.orderCurrency")}</span>
+                  <select value={orderDraft.currency} onChange={(event) => setOrderDraft({ ...orderDraft, currency: event.target.value as Order["currency"] })}>
+                    <option value="USD">USD</option>
+                    <option value="CNY">CNY</option>
+                  </select>
+                </label>
+                <label>
+                  <span>{t("form.orderTotal")}</span>
+                  <input readOnly value={(Number(orderDraft.quantity || 0) * Number(orderDraft.unitPrice || 0)).toFixed(2)} />
+                </label>
+                <label>
                   <span>{t("form.orderStatus")}</span>
                   <select
                     value={orderDraft.status}
@@ -5195,16 +5346,6 @@ function generatePIFromQuote(quote: Quote) {
                     <option value="Shipped">{t("status.Shipped")}</option>
                     <option value="Completed">{t("status.Completed")}</option>
                   </select>
-                </label>
-                <label>
-                  <span>{t("form.orderTotal")}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={orderDraft.total}
-                    onChange={(event) => setOrderDraft({ ...orderDraft, total: event.target.value })}
-                    placeholder="1990"
-                  />
                 </label>
                 <label>
                   <span>{t("form.orderChannel")}</span>
@@ -6262,23 +6403,28 @@ function ProformaInvoicePage({
   t,
   pis,
   pos,
+  suppliers,
   selectedPi,
   selectedPiCustomer,
   selectedPiVendor,
   onSelectPi,
   onExportPdf,
+  onGeneratePOs,
 }: {
   locale: Locale;
   t: (key: string) => string;
   pis: PIRecord[];
   pos: PORecord[];
+  suppliers: Supplier[];
   selectedPi: PIRecord | null;
   selectedPiCustomer: PartyDetails;
   selectedPiVendor: PartyDetails;
   onSelectPi: (piId: string) => void;
   onExportPdf: () => void;
+  onGeneratePOs: (pi: PIRecord, vendorNames: string[]) => Promise<void>;
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const autoPrint = location.pathname === "/pis/print";
   const autoGenPO = new URLSearchParams(location.search).get("genpo") === "1";
 
@@ -6294,19 +6440,20 @@ function ProformaInvoicePage({
     setShowPOCVendorModal(true);
     // 清除 URL 参数
     navigate(`/pis/preview?pi=${encodeURIComponent(selectedPi.id)}`, { replace: true });
-  }, [autoGenPO, selectedPi?.id]);
+  }, [autoGenPO, navigate, selectedPi?.id]);
 
   const linkedPOs = useMemo(
     () => (selectedPi ? [...pos].filter((po) => po.sourcePiId === selectedPi.id || po.poNo === selectedPi.piNo) : []),
     [pos, selectedPi],
   );
+  const linkedPO = linkedPOs[0] ?? null;
 
   const [showPOCVendorModal, setShowPOCVendorModal] = useState(false);
   const [poGenVendors, setPoGenVendors] = useState<string[]>([]);
 
-  const handleGeneratePOs = () => {
+  const handleGeneratePOs = async () => {
     if (!selectedPi || poGenVendors.length === 0) return;
-    generatePOsFromPI(selectedPi, poGenVendors);
+    await onGeneratePOs(selectedPi, poGenVendors);
     setShowPOCVendorModal(false);
     setPoGenVendors([]);
   };
@@ -6350,6 +6497,10 @@ function ProformaInvoicePage({
           <p>{t("pi.printSubtitle")}</p>
         </div>
         <div className="ci-toolbar-actions">
+          <button className="secondary-button" type="button" onClick={() => navigate("/quotes")}>
+            <IconChevronLeft size={18} strokeWidth={2} />
+            {t("button.back")}
+          </button>
           <label className="ci-select">
             <span>{t("ci.selectSource")}</span>
             <select value={selectedPi?.id ?? ""} onChange={(event) => onSelectPi(event.target.value)}>
@@ -6592,6 +6743,39 @@ function ProformaInvoicePage({
           </div>
         </section>
       </article>
+
+      {showPOCVendorModal && (
+        <div className="modal-overlay" onClick={() => setShowPOCVendorModal(false)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>选择供应商生成采购单</h3>
+              <button type="button" className="modal-close" onClick={() => setShowPOCVendorModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 12, color: "#666" }}>每个供应商生成一张采购单；PI 明细会按供应商拆分。</p>
+              {suppliers.filter((supplier) => supplier.status === "Active").map((vendor) => (
+                <label key={vendor.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+                  <input
+                    type="checkbox"
+                    checked={poGenVendors.includes(vendor.name)}
+                    onChange={(event) => setPoGenVendors((current) => event.target.checked
+                      ? Array.from(new Set([...current, vendor.name]))
+                      : current.filter((name) => name !== vendor.name))}
+                  />
+                  <span>{vendor.name}</span>
+                  {vendor.contact ? <span style={{ color: "#999", fontSize: 12 }}>{vendor.contact}</span> : null}
+                </label>
+              ))}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="secondary-button" onClick={() => { setShowPOCVendorModal(false); setPoGenVendors([]); }}>取消</button>
+              <button type="button" className="primary-button" disabled={poGenVendors.length === 0} onClick={() => void handleGeneratePOs()}>
+                生成 {poGenVendors.length} 张采购单
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -6870,42 +7054,6 @@ function PoDetailPage({
           </div>
         </article>
 
-        {showPOCVendorModal && (
-          <div className="modal-overlay" onClick={() => setShowPOCVendorModal(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h3>选择供应商生成采购单</h3>
-                <button className="modal-close" onClick={() => setShowPOCVendorModal(false)}>×</button>
-              </div>
-              <div className="modal-body">
-                <p style={{ marginBottom: 12, color: "#666" }}>选择一个或多个供应商，每个供应商将生成一张采购单：</p>
-                {suppliers.filter((s) => s.status === "active").map((vendor) => (
-                  <label key={vendor.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
-                    <input
-                      type="checkbox"
-                      checked={poGenVendors.includes(vendor.name)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setPoGenVendors((prev) => [...prev, vendor.name]);
-                        } else {
-                          setPoGenVendors((prev) => prev.filter((v) => v !== vendor.name));
-                        }
-                      }}
-                    />
-                    <span>{vendor.name}</span>
-                    {vendor.contact ? <span style={{ color: "#999", fontSize: 12 }}>{vendor.contact}</span> : null}
-                  </label>
-                ))}
-              </div>
-              <div className="modal-footer">
-                <button className="secondary-button" onClick={() => { setShowPOCVendorModal(false); setPoGenVendors([]); }}>取消</button>
-                <button className="primary-button" disabled={poGenVendors.length === 0} onClick={handleGeneratePOs}>
-                  生成 {poGenVendors.length} 张采购单
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -7180,6 +7328,222 @@ function CustomerDetailPage({
           </section>
         </div>
       </SectionShell>
+    </div>
+  );
+}
+
+function CommercialInvoiceFromPLPage({
+  locale,
+  t,
+  pis,
+  selectedPi,
+  selectedPiCustomer,
+  onSelectPi,
+  onExportPdf,
+}: {
+  locale: Locale;
+  t: (key: string) => string;
+  pis: PIRecord[];
+  selectedPi: PIRecord | null;
+  selectedPiCustomer: PartyDetails;
+  onSelectPi: (piId: string) => void;
+  onExportPdf: () => void;
+}) {
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>({});
+  const [lotPriceMode, setLotPriceMode] = useState(false);
+  const [lotPrice, setLotPrice] = useState(0);
+  const eligiblePis = useMemo(() => pis.filter((pi) => pi.plNo && Number(pi.stockOutQty || 0) > 0), [pis]);
+
+  const invoiceLines = useMemo(() => {
+    let remaining = Number(selectedPi?.stockOutQty || 0);
+    return (selectedPi?.lines ?? []).map((line, index) => {
+      const explicitStockOut = Number(line.stockOutQty || 0);
+      const quantity = explicitStockOut > 0 ? explicitStockOut : Math.min(Number(line.quantity || 0), Math.max(0, remaining));
+      remaining = Math.max(0, remaining - quantity);
+      return { ...line, invoiceKey: line.id ?? `${line.productCode}-${index}`, invoiceQuantity: quantity };
+    }).filter((line) => line.invoiceQuantity > 0);
+  }, [selectedPi]);
+
+  useEffect(() => {
+    const nextPrices = Object.fromEntries(invoiceLines.map((line) => [line.invoiceKey, Number(line.unitPrice || 0)]));
+    setPriceOverrides(nextPrices);
+    setLotPriceMode(false);
+    setLotPrice(invoiceLines.reduce((sum, line) => sum + line.invoiceQuantity * Number(line.unitPrice || 0), 0));
+  }, [selectedPi?.id]);
+
+  const lineTotal = invoiceLines.reduce(
+    (sum, line) => sum + line.invoiceQuantity * Number(priceOverrides[line.invoiceKey] ?? line.unitPrice ?? 0),
+    0,
+  );
+  const invoiceTotal = lotPriceMode ? Math.max(0, Number(lotPrice || 0)) : lineTotal;
+  const invoiceNo = selectedPi?.plNo ? selectedPi.plNo.replace(/^PL/i, "CI") : "-";
+  const invoiceDate = selectedPi?.deliveryDate || selectedPi?.generatedAt?.slice(0, 10) || "-";
+  const packingRows = selectedPi?.sizeDetails?.filter((row) => Number(row.quantity || 0) > 0).map((row, index) => ({
+    lot: String(index + 1),
+    size: row.size || "-",
+    quantity: Number(row.quantity || 0),
+  })) ?? [];
+  const fallbackPackingRows = packingRows.length ? packingRows : invoiceLines.map((line, index) => ({
+    lot: String(index + 1),
+    size: line.productName || line.productCode || "-",
+    quantity: line.invoiceQuantity,
+  }));
+  const packedQty = fallbackPackingRows.reduce((sum, row) => sum + row.quantity, 0);
+  const stockOutQty = Number(selectedPi?.stockOutQty || 0);
+  const packingMatches = packedQty === stockOutQty;
+  const formatQuantity = (value: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(value);
+
+  return (
+    <div className="page-stack ci-page">
+      <div className="ci-toolbar no-print">
+        <div className="ci-toolbar-copy">
+          <h2>{t("ci.detailTitle")}</h2>
+          <p>商业发票与装箱单均以已确认出库的 PL 为唯一来源，不再从采购单反推。</p>
+        </div>
+        <div className="ci-toolbar-actions">
+          <label className="ci-select">
+            <span>{t("ci.selectSource")}</span>
+            <select value={selectedPi?.id ?? ""} onChange={(event) => onSelectPi(event.target.value)}>
+              {eligiblePis.map((pi) => (
+                <option key={pi.id} value={pi.id}>{pi.plNo} · {pi.customer}</option>
+              ))}
+            </select>
+          </label>
+          <button className="primary-button" type="button" onClick={onExportPdf} disabled={!selectedPi}>
+            <IconDownload size={18} strokeWidth={2} />
+            {t("button.exportPdf")}
+          </button>
+        </div>
+      </div>
+
+      {!selectedPi ? (
+        <SectionShell title={t("ci.detailTitle")}>
+          <p>暂无已确认出库的 PL。请先在 PI 中按明细确认库存与出库数量。</p>
+        </SectionShell>
+      ) : (
+        <>
+          <section className="detail-card no-print">
+            <div className="editable-head">
+              <div>
+                <strong>发票价格</strong>
+                <p>默认继承 PI 客户成交价；可在打印前逐行调整，或启用 LOT PRICE。</p>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="checkbox" checked={lotPriceMode} onChange={(event) => setLotPriceMode(event.target.checked)} />
+                LOT PRICE
+              </label>
+            </div>
+            {lotPriceMode ? (
+              <label>
+                <span>LOT PRICE (USD)</span>
+                <input type="number" min="0" step="0.01" value={lotPrice} onChange={(event) => setLotPrice(Number(event.target.value))} />
+              </label>
+            ) : (
+              <div className="form-grid">
+                {invoiceLines.map((line) => (
+                  <label key={line.invoiceKey}>
+                    <span>{line.productCode || line.productName} · USD</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.0001"
+                      value={priceOverrides[line.invoiceKey] ?? line.unitPrice ?? 0}
+                      onChange={(event) => setPriceOverrides((current) => ({ ...current, [line.invoiceKey]: Number(event.target.value) }))}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+            {!packingMatches ? <p className="notice">装箱数量 {formatQuantity(packedQty)} 与 PL 出库数量 {formatQuantity(stockOutQty)} 不一致，请回到 PI 修正尺码/装箱明细后再出单。</p> : null}
+          </section>
+
+          <article className="ci-sheet">
+            <div className="ci-topbar">
+              <div className="ci-logo-block"><div className="ci-logo-mark">S</div><div className="ci-logo-text">SYNSHOO</div></div>
+              <div className="ci-company">
+                <h1>{commercialCompany.name}</h1>
+                <p>{commercialCompany.address}</p>
+                <p>Tel: {commercialCompany.phone} Fax: {commercialCompany.fax}</p>
+              </div>
+            </div>
+            <div className="ci-meta">
+              <div className="ci-meta-left">
+                <div><span>{t("ci.invoiceNo")}</span><strong>{invoiceNo}</strong></div>
+                <div><span>PL No.</span><strong>{selectedPi.plNo}</strong></div>
+              </div>
+              <div className="ci-title">COMMERCIAL INVOICE</div>
+              <div className="ci-meta-right">
+                <div><span>{t("ci.contractRef")}</span><strong>{selectedPi.ourRefNo || "-"}</strong></div>
+                <div><span>{t("ci.date")}</span><strong>{invoiceDate}</strong></div>
+              </div>
+            </div>
+            <section className="ci-header-grid">
+              <div className="ci-panel">
+                <h2>{t("ci.shipTo")}</h2>
+                <strong>{selectedPiCustomer.name || selectedPi.customer}</strong>
+                <p>{selectedPi.deliverTo || selectedPiCustomer.address || "-"}</p>
+                <p className="ci-contact">Contact: {selectedPiCustomer.contact || "-"}</p>
+              </div>
+              <div className="ci-panel">
+                <div className="ci-two-line"><span>PI No.:</span><strong>{selectedPi.piNo}</strong></div>
+                <div className="ci-two-line"><span>Customer PO:</span><strong>{selectedPi.ourRefNo || "-"}</strong></div>
+                <div className="ci-terms-line"><span>{t("ci.terms")}:</span><strong>{t("ci.termsValue")}</strong></div>
+              </div>
+            </section>
+            <section className="ci-item-block">
+              <div className="ci-item-head">
+                <span>QUANTITY</span><span>{t("ci.itemDescription")}</span><span>{t("ci.description")}</span><span>{t("ci.unitPrice")}</span><span>{t("ci.amount")}</span>
+              </div>
+              {invoiceLines.map((line) => {
+                const price = Number(priceOverrides[line.invoiceKey] ?? line.unitPrice ?? 0);
+                return (
+                  <div className="ci-item-row" key={line.invoiceKey}>
+                    <span>{formatQuantity(line.invoiceQuantity)}</span>
+                    <span>{line.productCode || "-"}</span>
+                    <span>{line.productName || selectedPi.description || "-"}</span>
+                    <span>{lotPriceMode ? "LOT PRICE" : price.toFixed(4)}</span>
+                    <span>{lotPriceMode ? "-" : (line.invoiceQuantity * price).toFixed(2)}</span>
+                  </div>
+                );
+              })}
+              <div className="ci-total-row"><span>{lotPriceMode ? "TOTAL · LOT PRICE" : t("ci.total")}</span><strong>{invoiceTotal.toFixed(2)}</strong></div>
+            </section>
+            <section className="ci-footer">
+              <div><span>{t("ci.poNumber")}:</span><strong>{selectedPi.ourRefNo || "-"}</strong></div>
+              <div><span>{t("ci.countryOfOrigin")}:</span><strong>CHINA</strong></div>
+              <div><span>{t("ci.remarks")}:</span><strong>{selectedPi.remarks || "-"}</strong></div>
+            </section>
+          </article>
+
+          <article className="packing-sheet">
+            <div className="packing-topbar">
+              <div className="packing-logo-block"><div className="packing-logo-mark">S</div><div className="packing-logo-text">SYNSHOO</div></div>
+              <div className="packing-company"><h1>{commercialCompany.name}</h1><p>{commercialCompany.address}</p></div>
+            </div>
+            <h1 className="packing-title">PACKING LIST</h1>
+            <section className="packing-meta">
+              <div><span>CI Ref:</span><strong>{invoiceNo}</strong></div>
+              <div><span>PL Ref:</span><strong>{selectedPi.plNo}</strong></div>
+              <div><span>Date:</span><strong>{invoiceDate.replace(/-/g, "/")}</strong></div>
+            </section>
+            <section className="packing-address-grid">
+              <div className="packing-address-card"><span>To:</span><strong>{selectedPiCustomer.name || selectedPi.customer}</strong><p>{selectedPi.deliverTo || selectedPiCustomer.address || "-"}</p></div>
+              <div className="packing-summary-box">
+                <div className="packing-summary-row"><span>Lots</span><strong>{fallbackPackingRows.length}</strong></div>
+                <div className="packing-summary-row"><span>Total Quantity</span><strong>{formatQuantity(packedQty)} PCS</strong></div>
+              </div>
+            </section>
+            <section className="packing-table">
+              <div className="packing-head"><span>Package No.</span><span>PL No.</span><span>Code Ref.</span><span>Size / Item</span><span>Color</span><span>No.of Pkgs</span><span>Quantity[pcs]</span></div>
+              {fallbackPackingRows.map((row, index) => (
+                <div className="packing-row" key={`${row.lot}-${index}`}>
+                  <span>{row.lot}</span><span>{selectedPi.plNo}</span><span>{selectedPi.itemCode || invoiceLines[index]?.productCode || "-"}</span><span>{row.size}</span><span>{selectedPi.colors || "-"}</span><span>1</span><span>{formatQuantity(row.quantity)}</span>
+                </div>
+              ))}
+            </section>
+          </article>
+        </>
+      )}
     </div>
   );
 }
@@ -7614,16 +7978,18 @@ function OrdersPage({
       }
     >
       <Table
-        columns={[t("table.orderId"), t("table.customer"), t("table.productName"), t("table.status"), t("table.amount"), t("table.channel"), t("table.actions")]}
+        columns={[t("table.orderId"), t("table.customerOrderNo"), t("table.customer"), t("table.productName"), t("table.quantity"), t("table.unitPrice"), t("table.status"), t("table.amount"), t("table.actions")]}
         rows={orders.map((item) => [
           item.id,
+          item.customerOrderNo || "-",
           item.customer,
           item.product,
+          String(item.quantity),
+          formatMoney(item.unitPrice, locale, item.currency),
           <span className={`status-pill status-${item.status.toLowerCase()}`} key={`${item.id}-status`}>
             {t(`status.${item.status}`)}
           </span>,
-          formatMoney(item.total, locale),
-          item.channel,
+          formatMoney(item.total, locale, item.currency),
           <TableActions
             key={`${item.id}-actions`}
             t={t}
